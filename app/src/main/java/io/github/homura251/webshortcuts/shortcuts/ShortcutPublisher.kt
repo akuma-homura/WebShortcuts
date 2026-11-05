@@ -25,9 +25,10 @@ class ShortcutPublisher(
     suspend fun pin(bookmark: BookmarkItem): Boolean = withContext(Dispatchers.IO) {
         if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) return@withContext false
         try {
+            val shortcut = build(bookmark)
             // Restoring a previously deleted ID must also clear its disabled state.
-            ShortcutManagerCompat.enableShortcuts(context, listOf(bookmark.id))
-            ShortcutManagerCompat.requestPinShortcut(context, build(bookmark), null)
+            ShortcutManagerCompat.enableShortcuts(context, listOf(shortcut))
+            ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
