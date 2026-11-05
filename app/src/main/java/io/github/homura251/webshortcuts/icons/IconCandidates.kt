@@ -63,12 +63,16 @@ internal object IconCandidates {
         }
     }
 
-    fun sorted(candidates: List<IconCandidate>): List<IconCandidate> = candidates
-        .sortedWith(compareBy<IconCandidate> { it.rank }
+    fun sorted(candidates: List<IconCandidate>): List<IconCandidate> {
+        val ranked = candidates.sortedWith(compareBy<IconCandidate> { it.rank }
             .thenByDescending { it.size.coerceAtMost(IconPolicy.MAX_DIMENSION) }
             .thenBy { if (it.mimeType in setOf("image/png", "image/webp")) 0 else 1 })
-        .distinctBy { it.url }
-        .take(12)
+            .distinctBy { it.url }
+        val fallback = ranked.firstOrNull { it.kind == CandidateKind.FAVICON }
+        // Keep the request budget bounded without allowing many broken declarations to evict /favicon.ico.
+        return if (fallback == null) ranked.take(12)
+        else ranked.filter { it.kind != CandidateKind.FAVICON }.take(11) + fallback
+    }
 
     fun resolve(base: String, value: String): String? {
         if (value.isBlank()) return null

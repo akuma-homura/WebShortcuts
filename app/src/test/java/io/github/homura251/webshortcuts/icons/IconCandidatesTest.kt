@@ -51,6 +51,15 @@ class IconCandidatesTest {
         assertEquals("http://192.168.1.1/favicon.ico", IconCandidates.rootFavicon("http://192.168.1.1/app?q=1#x"))
     }
 
+    @Test fun reservesTheLastAttemptForRootFallbackEvenWithManyDeclaredIcons() {
+        val declared = (1..30).map { IconCandidate("https://example.com/icon$it.png", CandidateKind.MANIFEST, 512) }
+        val fallback = IconCandidate("https://example.com/favicon.ico", CandidateKind.FAVICON)
+        val result = IconCandidates.sorted(declared + fallback)
+        assertEquals(12, result.size)
+        assertEquals(fallback, result.last())
+        assertEquals(11, result.count { it.kind == CandidateKind.MANIFEST })
+    }
+
     @Test fun declaredSizesAreBounded() {
         assertEquals(512, IconCandidates.size("any"))
         assertEquals(192, IconCandidates.size("garbage 999999x999999 192x512"))

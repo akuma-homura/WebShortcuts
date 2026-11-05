@@ -65,14 +65,18 @@ class SiteIconDiscoverer(
             for (candidate in IconCandidates.sorted(candidates)) {
                 coroutineContext.ensureActive()
                 val resource = request(candidate.url, ResourceKind.IMAGE) ?: continue
+                val fetchContext = coroutineContext
                 val bitmap = try {
-                    processor.decode(resource.bytes, resource.mime)
+                    processor.decode(resource.bytes, resource.mime, checkpoint = { fetchContext.ensureActive() })
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
                     continue
                 }
-                coroutineContext.ensureActive()
+                try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                    bitmap.recycle()
+                    throw cancelled
+                }
                 val resolution = if (candidate.size > 0) " · ${candidate.size}×${candidate.size}" else ""
                 return@withTimeoutOrNull IconFetchResult(bitmap, resource.finalUrl, candidate.kind.label + resolution)
             }

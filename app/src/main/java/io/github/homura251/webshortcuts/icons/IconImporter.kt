@@ -19,16 +19,18 @@ class IconImporter(context: Context, private val processor: IconProcessor) {
     suspend fun import(uri: Uri, centerCrop: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
         val (bytes, mime) = read(uri)
         coroutineContext.ensureActive()
-        processor.decode(bytes, mime, centerCrop)
+        val importContext = coroutineContext
+        processor.decode(bytes, mime, centerCrop, checkpoint = { importContext.ensureActive() })
     }
 
     suspend fun importVariants(uri: Uri): ImportedIcon = withContext(Dispatchers.IO) {
         val (bytes, mime) = read(uri)
         coroutineContext.ensureActive()
-        val fitted = processor.decode(bytes, mime, centerCrop = false)
+        val importContext = coroutineContext
+        val fitted = processor.decode(bytes, mime, centerCrop = false, checkpoint = { importContext.ensureActive() })
         try {
             coroutineContext.ensureActive()
-            ImportedIcon(fitted, processor.decode(bytes, mime, centerCrop = true))
+            ImportedIcon(fitted, processor.decode(bytes, mime, centerCrop = true, checkpoint = { importContext.ensureActive() }))
         } catch (failure: Exception) {
             fitted.recycle()
             throw failure

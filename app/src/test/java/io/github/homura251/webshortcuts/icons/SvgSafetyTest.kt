@@ -27,6 +27,39 @@ class SvgSafetyTest {
         SvgSafety.check("""<svg><g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g></svg>""")
     }
 
+    @Test(expected = IllegalArgumentException::class, timeout = 2000) fun rejectsAcyclicExponentialUseExpansion() {
+        val source = buildString {
+            append("<svg><defs><g id='n0'><path d='M0 0h1v1z'/></g>")
+            for (level in 1..10) {
+                append("<g id='n$level'>")
+                repeat(3) { append("<use href='#n${level - 1}'/>") }
+                append("</g>")
+            }
+            append("</defs><use href='#n10'/></svg>")
+        }
+        // Only 45 source elements and no cycle: expansion still exceeds 59,000 path draws.
+        SvgSafety.check(source)
+    }
+
+    @Test(expected = IllegalArgumentException::class, timeout = 2000) fun rejectsRepeatedLargePathWithoutAnElementExplosion() {
+        val source = buildString {
+            append("<svg><defs><path id='p' d='M0 0")
+            repeat(3000) { append("L1 1 ") }
+            append("'/></defs>")
+            repeat(100) { append("<use href='#p'/>") }
+            append("</svg>")
+        }
+        SvgSafety.check(source)
+    }
+
+    @Test fun acceptsReasonableSymbolReuse() {
+        SvgSafety.check("""<svg><defs><g id="symbol"><path d="M0 0h1v1z"/></g></defs><use href="#symbol"/><use href="#symbol"/></svg>""")
+    }
+
+    @Test(expected = IllegalArgumentException::class) fun rejectsDuplicateIdsThatCouldResolveDifferentlyInTheRenderer() {
+        SvgSafety.check("""<svg><g id="a"><use href="#a"/></g><path id="a" d="M0 0h1v1z"/></svg>""")
+    }
+
     @Test(expected = IllegalArgumentException::class) fun rejectsDirectRecursiveUse() {
         SvgSafety.check("""<svg><g id="loop"><use href="#loop"/></g></svg>""")
     }

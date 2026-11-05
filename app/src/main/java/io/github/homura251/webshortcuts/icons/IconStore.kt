@@ -45,14 +45,17 @@ class IconStore(context: Context) {
     suspend fun read(path: String?): Bitmap? = withContext(Dispatchers.IO) {
         val file = path?.let(::resolve) ?: return@withContext null
         mutex.withLock {
-            if (!file.isFile || file.length() !in 1..IconPolicy.MAX_IMAGE_BYTES.toLong()) return@withLock null
+            if (!atomicFamilyIsLocal(file)) return@withLock null
             runCatching {
+                // openRead restores AtomicFile's legacy .bak after an interrupted write. Reading the
+                // base file directly can lose a recoverable icon or decode a partially written base.
+                val bytes = AtomicFile(file).openRead().use { IconPolicy.readBounded(it, IconPolicy.MAX_IMAGE_BYTES) }
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.path, bounds)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                 IconPolicy.validateDimensions(bounds.outWidth, bounds.outHeight)
                 var sample = 1
                 while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1024) sample *= 2
-                BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply {
                     inSampleSize = sample
                     inPreferredConfig = Bitmap.Config.ARGB_8888
                 })
@@ -63,14 +66,19 @@ class IconStore(context: Context) {
     /** Run only after metadata commits, retaining both AUTO and CUSTOM histories still referenced. */
     suspend fun cleanup(bookmarks: List<BookmarkItem>) = withContext(Dispatchers.IO) {
         val retained = bookmarks.flatMap { listOfNotNull(it.autoImagePath, it.customImagePath) }
-            .mapNotNull(::resolve).map { it.canonicalPath }.toSet()
+            .mapNotNull(::resolve).flatMap { file ->
+                // Keep the whole AtomicFile family until openRead can perform recovery. In particular,
+                // the base may be absent while its only committed copy is still named .bak.
+                listOf(file.canonicalPath, file.canonicalPath + ".bak", file.canonicalPath + ".new")
+            }.toSet()
         mutex.withLock {
             listOf("auto", "custom").forEach { name ->
                 val directory = File(root, name)
                 // Do not follow a symlink or accept a path beyond the application's icon root.
-                if (!directory.isDirectory || directory.canonicalPath != directory.absolutePath) return@forEach
+                if (root.canonicalFile != File(filesDir.canonicalFile, "icons") || !directory.isDirectory ||
+                    directory.canonicalFile != File(root.canonicalFile, name)) return@forEach
                 directory.listFiles()?.forEach { file ->
-                    if (file.isFile && file.canonicalPath == file.absolutePath && file.canonicalPath !in retained) {
+                    if (file.isFile && file.canonicalFile == File(directory.canonicalFile, file.name) && file.canonicalPath !in retained) {
                         file.delete()
                     }
                 }
@@ -81,8 +89,13 @@ class IconStore(context: Context) {
     private fun resolve(relative: String): File? {
         if (!relative.matches(Regex("icons/(auto|custom)/[A-Za-z0-9_-]{1,100}\\.(png|webp)"))) return null
         val file = File(filesDir, relative)
-        if (root.canonicalFile.parentFile != filesDir.canonicalFile) return null
-        if (!file.canonicalPath.startsWith(root.canonicalPath + File.separator)) return null
+        if (root.canonicalFile != File(filesDir.canonicalFile, "icons")) return null
+        if (file.canonicalFile != File(filesDir.canonicalFile, relative)) return null
         return file
+    }
+
+    private fun atomicFamilyIsLocal(file: File): Boolean = listOf("", ".bak", ".new").all { suffix ->
+        val sibling = File(file.path + suffix)
+        sibling.canonicalFile == File(file.parentFile!!.canonicalFile, file.name + suffix)
     }
 }

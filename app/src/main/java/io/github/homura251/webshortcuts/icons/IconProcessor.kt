@@ -16,7 +16,8 @@ import kotlin.math.roundToInt
 
 /** All decoded images are bounded, then letterboxed into the adaptive icon safe zone. */
 class IconProcessor {
-    fun decode(bytes: ByteArray, mimeType: String? = null, centerCrop: Boolean = false): Bitmap {
+    fun decode(bytes: ByteArray, mimeType: String? = null, centerCrop: Boolean = false, checkpoint: () -> Unit = {}): Bitmap {
+        checkpoint()
         require(bytes.isNotEmpty() && bytes.size <= IconPolicy.MAX_IMAGE_BYTES) { "Image must be smaller than 5 MB." }
         val declared = mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)
         require(declared == null || declared in IconPolicy.supportedMimeTypes) { "Unsupported image format." }
@@ -26,10 +27,14 @@ class IconProcessor {
         }
         val bitmap = when (actual) {
             "image/x-icon" -> IcoDecoder.decode(bytes)
-            "image/svg+xml" -> decodeSvg(bytes)
-            else -> decodeRaster(bytes, actual)
+            "image/svg+xml" -> decodeSvg(bytes, checkpoint)
+            else -> decodeRaster(bytes, actual, checkpoint)
         }
-        return try { normalize(bitmap, centerCrop) } finally { bitmap.recycle() }
+        return try {
+            checkpoint()
+            val normalized = normalize(bitmap, centerCrop)
+            try { checkpoint(); normalized } catch (failure: Throwable) { normalized.recycle(); throw failure }
+        } finally { bitmap.recycle() }
     }
 
     fun normalize(source: Bitmap, centerCrop: Boolean = false): Bitmap {
@@ -55,7 +60,7 @@ class IconProcessor {
         return output
     }
 
-    private fun decodeRaster(bytes: ByteArray, mime: String): Bitmap {
+    private fun decodeRaster(bytes: ByteArray, mime: String, checkpoint: () -> Unit): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         IconPolicy.validateDimensions(bounds.outWidth, bounds.outHeight)
@@ -65,6 +70,7 @@ class IconProcessor {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
+        checkpoint()
         val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
             ?: throw IllegalArgumentException("Image could not be decoded.")
         if (mime != "image/jpeg") return decoded
@@ -87,10 +93,12 @@ class IconProcessor {
         return oriented
     }
 
-    private fun decodeSvg(bytes: ByteArray): Bitmap {
+    private fun decodeSvg(bytes: ByteArray, checkpoint: () -> Unit): Bitmap {
         val text = bytes.toString(Charsets.UTF_8)
-        SvgSafety.check(text)
+        SvgSafety.check(text, checkpoint)
+        checkpoint()
         val svg = SVG.getFromString(text)
+        checkpoint()
         val viewBox = svg.documentViewBox
         val width = if (svg.documentWidth > 0) svg.documentWidth else viewBox?.width() ?: 512f
         val height = if (svg.documentHeight > 0) svg.documentHeight else viewBox?.height() ?: 512f
@@ -100,10 +108,17 @@ class IconProcessor {
         val targetWidth = (width * ratio).roundToInt().coerceAtLeast(1)
         val targetHeight = (height * ratio).roundToInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        svg.setDocumentWidth(targetWidth.toFloat())
-        svg.setDocumentHeight(targetHeight.toFloat())
-        svg.renderToCanvas(Canvas(bitmap))
-        return bitmap
+        return try {
+            svg.setDocumentWidth(targetWidth.toFloat())
+            svg.setDocumentHeight(targetHeight.toFloat())
+            checkpoint()
+            svg.renderToCanvas(Canvas(bitmap))
+            checkpoint()
+            bitmap
+        } catch (failure: Throwable) {
+            bitmap.recycle()
+            throw failure
+        }
     }
 
     companion object {

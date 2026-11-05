@@ -55,6 +55,21 @@ class SiteIconDiscovererTest {
         assertEquals(3, server.requestCount)
     }
 
+    @Test fun manyBrokenDeclarationsStillReachRootFaviconWithinCandidateBudget() = runBlocking {
+        val links = (1..20).joinToString("") { "<link rel='icon' sizes='192x192' href='/bad$it.png'>" }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", "<head>$links</head>")
+                "/favicon.ico" -> png()
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())
+        assertNotNull(result)
+        assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
+        assertEquals(13, server.requestCount) // The HTML plus at most twelve candidate attempts.
+    }
+
     @Test fun oversizedIconSkipsToFallback() = runBlocking {
         server.enqueue(text("text/html", """<head><link rel="icon" sizes="192x192" href="/large.png"></head>"""))
         server.enqueue(MockResponse().setHeader("Content-Type", "image/png")

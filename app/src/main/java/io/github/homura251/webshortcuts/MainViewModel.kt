@@ -265,8 +265,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         if (importJob?.isActive == true) { notify("请等待图片处理完成后保存"); return }
         val url = normalizeOrShowError(editor.url) ?: return
         val title = editor.title.trim()
-        if (title.isEmpty() || title.length > 80) {
-            changeEditor { it.copy(titleError = "请输入 1–80 个字符的网站名称") }
+        if (title.isEmpty() || title.length > 80 || title.any { it.isISOControl() }) {
+            changeEditor { it.copy(titleError = "请输入 1–80 个字符的网站名称，不包含换行") }
             return
         }
         if (editor.mode == IconSourceMode.CUSTOM && customImage == null && original?.customImagePath == null) {

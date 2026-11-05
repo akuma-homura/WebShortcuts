@@ -48,6 +48,36 @@ class IconStoreTest {
         assertEquals("keep", sentinel.readText())
     }
 
+    @Test fun cleanupPreservesAndReadRecoversCommittedAtomicBackup() = runBlocking {
+        val image = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        val path = store.save("interrupted-write", 1, IconSourceMode.CUSTOM, image)
+        val base = File(context.filesDir, path)
+        val backup = File(base.path + ".bak")
+        assertTrue(base.renameTo(backup))
+        // Simulate the legacy AtomicFile state after a process dies during a write.
+        base.writeText("incomplete image")
+        val bookmark = BookmarkItem(id = "interrupted-write", title = "Example", url = "https://example.com",
+            customImagePath = path, selectedIconSource = IconSourceMode.CUSTOM)
+        store.cleanup(listOf(bookmark))
+        assertTrue(backup.exists())
+        val recovered = store.read(path)
+        assertNotNull(recovered)
+        assertEquals(Color.BLUE, recovered!!.getPixel(256, 256))
+        assertFalse(backup.exists())
+    }
+
+    @Test fun atomicBackupSurvivesCleanupWhenBaseIsMissing() = runBlocking {
+        val image = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        val path = store.save("missing-base", 1, IconSourceMode.AUTO, image)
+        val base = File(context.filesDir, path)
+        val backup = File(base.path + ".bak")
+        assertTrue(base.renameTo(backup))
+        val bookmark = BookmarkItem(id = "missing-base", title = "Example", url = "https://example.com", autoImagePath = path)
+        store.cleanup(listOf(bookmark))
+        assertNotNull(store.read(path))
+        assertTrue(base.exists())
+    }
+
     @Test fun customModeNeverResolvesAnAutoImage() = runBlocking {
         val image = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
         val auto = store.save("test-custom", 1, IconSourceMode.AUTO, image)
