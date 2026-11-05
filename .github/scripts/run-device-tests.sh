@@ -8,4 +8,6 @@ collect_screenshots() {
 }
 trap collect_screenshots EXIT
 
-./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:connectedDebugAndroidTest
+# UTP otherwise uninstalls the app (and its external files) before the EXIT trap can pull them.
+./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
+    -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true :app:connectedDebugAndroidTest

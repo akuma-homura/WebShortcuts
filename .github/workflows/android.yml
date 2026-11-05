@@ -108,6 +108,7 @@ jobs:
         with:
           name: device-screenshots
           path: device-screenshots/
+          if-no-files-found: error
           retention-days: 30
       - name: Upload device reports
         if: always()
