@@ -32,6 +32,7 @@ data class IconFetchResult(val bitmap: Bitmap, val sourceUrl: String, val descri
 class SiteIconDiscoverer(
     private val processor: IconProcessor,
     client: OkHttpClient = OkHttpClient(),
+    private val fetchTimeoutMillis: Long = 25_000,
 ) {
     private val http = client.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -42,45 +43,72 @@ class SiteIconDiscoverer(
         .cookieJar(okhttp3.CookieJar.NO_COOKIES)
         .build()
 
-    suspend fun fetch(url: String): IconFetchResult? = withContext(Dispatchers.IO) {
-        val parsedUrl = url.toHttpUrlOrNull() ?: return@withContext null
-        if (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty()) return@withContext null
-        withTimeoutOrNull(25_000) {
-            val candidates = mutableListOf<IconCandidate>()
-            var pageUrl = parsedUrl.toString()
-            val page = request(pageUrl, ResourceKind.HTML)
-            if (page != null) {
-                pageUrl = page.finalUrl
-                val head = runCatching { IconCandidates.parseHead(page.text(), pageUrl) }.getOrNull()
-                if (head != null) {
-                    candidates.addAll(head.candidates)
-                    for (manifestUrl in head.manifests) {
+    suspend fun fetch(url: String): IconFetchResult? {
+        var best: IconFetchResult? = null
+        try {
+            return withContext(Dispatchers.IO) {
+                val parsedUrl = url.toHttpUrlOrNull() ?: return@withContext null
+                if (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty()) return@withContext null
+                var bestResolution = 0
+                withTimeoutOrNull(fetchTimeoutMillis) {
+                    val candidates = mutableListOf<IconCandidate>()
+                    var pageUrl = parsedUrl.toString()
+                    val page = request(pageUrl, ResourceKind.HTML)
+                    if (page != null) {
+                        pageUrl = page.finalUrl
+                        val head = runCatching { IconCandidates.parseHead(page.text(), pageUrl) }.getOrNull()
+                        if (head != null) {
+                            candidates.addAll(head.candidates)
+                            for (manifestUrl in head.manifests) {
+                                coroutineContext.ensureActive()
+                                val manifest = request(manifestUrl, ResourceKind.MANIFEST) ?: continue
+                                candidates.addAll(runCatching { IconCandidates.parseManifest(manifest.text(), manifest.finalUrl) }.getOrDefault(emptyList()))
+                            }
+                        }
+                    }
+                    IconCandidates.rootFavicon(pageUrl)?.let { candidates.add(IconCandidate(it, CandidateKind.FAVICON)) }
+                    for (candidate in IconCandidates.sorted(candidates)) {
                         coroutineContext.ensureActive()
-                        val manifest = request(manifestUrl, ResourceKind.MANIFEST) ?: continue
-                        candidates.addAll(runCatching { IconCandidates.parseManifest(manifest.text(), manifest.finalUrl) }.getOrDefault(emptyList()))
+                        val resource = request(candidate.url, ResourceKind.IMAGE) ?: continue
+                        val fetchContext = coroutineContext
+                        val decoded = try {
+                            processor.decodeWithMetadata(resource.bytes, resource.mime, maskable = candidate.maskable,
+                                checkpoint = { fetchContext.ensureActive() })
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            continue
+                        }
+                        try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                            decoded.bitmap.recycle()
+                            throw cancelled
+                        }
+                        // Declared sizes only guide request order. Normalizing a 32 px favicon
+                        // to 512 px cannot restore its missing detail.
+                        val resolution = if (decoded.scalable) IconPolicy.OUTPUT_SIZE
+                            else minOf(decoded.sourceWidth, decoded.sourceHeight).coerceAtMost(IconPolicy.OUTPUT_SIZE)
+                        if (resolution > bestResolution) {
+                            val dimensions = if (decoded.scalable) "SVG · scalable"
+                                else "${decoded.sourceWidth}×${decoded.sourceHeight}"
+                            val quality = if (!decoded.scalable && resolution < 192) "低清回退 · " else ""
+                            val previous = best
+                            best = IconFetchResult(decoded.bitmap, resource.finalUrl, "$quality${candidate.kind.label} · $dimensions")
+                            bestResolution = resolution
+                            previous?.bitmap?.recycle()
+                        } else {
+                            decoded.bitmap.recycle()
+                        }
+                        // Keep looking past small favicons and 192 px icons for a 512 px source.
+                        if (bestResolution >= IconPolicy.OUTPUT_SIZE) return@withTimeoutOrNull
                     }
                 }
+                // Our deadline can interrupt a slower candidate after a usable image was found.
+                best
             }
-            IconCandidates.rootFavicon(pageUrl)?.let { candidates.add(IconCandidate(it, CandidateKind.FAVICON)) }
-            for (candidate in IconCandidates.sorted(candidates)) {
-                coroutineContext.ensureActive()
-                val resource = request(candidate.url, ResourceKind.IMAGE) ?: continue
-                val fetchContext = coroutineContext
-                val bitmap = try {
-                    processor.decode(resource.bytes, resource.mime, checkpoint = { fetchContext.ensureActive() })
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    continue
-                }
-                try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
-                    bitmap.recycle()
-                    throw cancelled
-                }
-                val resolution = if (candidate.size > 0) " · ${candidate.size}×${candidate.size}" else ""
-                return@withTimeoutOrNull IconFetchResult(bitmap, resource.finalUrl, candidate.kind.label + resolution)
-            }
-            null
+        } catch (failure: Throwable) {
+            // Covers caller cancellation, including dispatching the result back from IO.
+            best?.bitmap?.recycle()
+            throw failure
         }
     }
 

@@ -14,6 +14,8 @@ object IconPolicy {
     const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
     const val MAX_TEXT_BYTES = 512 * 1024
     const val SAFE_ZONE_RATIO = 66f / 108f
+    const val WEB_MASKABLE_SAFE_RATIO = 0.8f
+    const val ADAPTIVE_VIEWPORT_RATIO = 72f / 108f
 
     val supportedMimeTypes = setOf(
         "image/png", "image/jpeg", "image/webp", "image/x-icon",

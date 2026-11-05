@@ -20,6 +20,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -38,7 +40,7 @@ class SiteIconDiscovererTest {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
                 "/site" -> text("text/html", """<head><link rel="manifest" href="/pwa/app.json"><link rel="apple-touch-icon" href="/apple.png"></head>""")
                 "/pwa/app.json" -> text("application/manifest+json", """{"icons":[{"src":"small.png","sizes":"192x192"},{"src":"large.png","sizes":"512x512"}]}""")
-                "/pwa/large.png" -> png()
+                "/pwa/large.png" -> png(512)
                 else -> MockResponse().setResponseCode(404)
             }
         }
@@ -46,6 +48,135 @@ class SiteIconDiscovererTest {
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/pwa/large.png"))
         assertEquals(3, server.requestCount)
+    }
+
+    @Test fun lyingDeclaredSizeDoesNotPreventTryingAHigherResolutionSource() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head>
+                    <link rel="manifest" href="/app.json">
+                    <link rel="icon" sizes="512x512" href="/large.png">
+                    </head>""")
+                "/app.json" -> text("application/manifest+json", """{"icons":[{"src":"tiny.png","sizes":"1024x1024"}]}""")
+                "/tiny.png" -> png(32)
+                "/large.png" -> png(512)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/large.png"))
+            assertTrue(result.description.endsWith("512×512"))
+            assertEquals(listOf("/site", "/app.json", "/tiny.png", "/large.png"), recordedPaths(4))
+            assertEquals(4, server.requestCount)
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun descriptionUsesActualDimensionsAndLowResolutionIsOnlyAFallback() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head>
+                    <link rel="icon" sizes="512x512" href="/lying.png">
+                    <link rel="apple-touch-icon" href="/actual.png">
+                    </head>""")
+                "/lying.png" -> png(48)
+                "/actual.png" -> png(192)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/actual.png"))
+            assertEquals("Apple Touch Icon · 192×192", result.description)
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun icoQualityUsesTheFrameActuallyDecodedWhenItsLargestFrameIsBroken() = runBlocking {
+        val smallPng = pngBytes(64)
+        val headerSize = 6 + 2 * 16
+        val ico = ByteBuffer.allocate(headerSize + 1 + smallPng.size).order(ByteOrder.LITTLE_ENDIAN)
+            .putShort(0).putShort(1).putShort(2)
+            .put(0).put(0).put(0).put(0).putShort(1).putShort(32).putInt(1).putInt(headerSize)
+            .put(64).put(64).put(0).put(0).putShort(1).putShort(32).putInt(smallPng.size).putInt(headerSize + 1)
+            .put(0).put(smallPng).array()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head>
+                    <link rel="icon" sizes="512x512" href="/broken.ico">
+                    <link rel="icon" sizes="192x192" href="/good.png">
+                    </head>""")
+                "/broken.ico" -> MockResponse().setHeader("Content-Type", "image/x-icon").setBody(Buffer().write(ico))
+                "/good.png" -> png(192)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/good.png"))
+            assertTrue(result.description.endsWith("192×192"))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun svgIsAHighResolutionSourceRegardlessOfItsViewBoxSize() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head>
+                    <link rel="apple-touch-icon" sizes="192x192" href="/medium.png">
+                    <link rel="icon" href="/vector.svg">
+                    </head>""")
+                "/medium.png" -> png(192)
+                "/vector.svg" -> text("image/svg+xml", """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#ff0000"/></svg>""")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/vector.svg"))
+            assertTrue(result.description.contains("scalable"))
+            assertEquals(listOf("/site", "/medium.png", "/vector.svg"), recordedPaths(3))
+            assertEquals(3, server.requestCount)
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun totalDeadlineKeepsTheBestImageAlreadyDownloaded() = runBlocking {
+        // Warm up native graphics before starting the short network deadline on slower CI hosts.
+        val small = pngBytes(64)
+        IconProcessor().decode(small, "image/png").recycle()
+        val bounded = SiteIconDiscoverer(IconProcessor(), fetchTimeoutMillis = 2_000)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head>
+                    <link rel="icon" sizes="512x512" href="/small.png">
+                    <link rel="icon" sizes="192x192" href="/slow.png">
+                    </head>""")
+                "/small.png" -> MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(small))
+                "/slow.png" -> MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = bounded.fetch(server.url("/site").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/small.png"))
+            assertTrue(result.description.endsWith("64×64"))
+            assertFalse(result.bitmap.isRecycled)
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun transparentHighResolutionMaskableDoesNotBlockAVisibleLogo() = runBlocking {
+        val empty = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        val payload = ByteArrayOutputStream().also { empty.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        empty.recycle()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head><link rel="manifest" href="/app.json"><link rel="icon" sizes="192x192" href="/visible.png"></head>""")
+                "/app.json" -> text("application/manifest+json", """{"icons":[{"src":"empty.png","sizes":"512x512","purpose":"maskable"}]}""")
+                "/empty.png" -> MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(payload))
+                "/visible.png" -> png(192)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try { assertTrue(result.sourceUrl.endsWith("/visible.png")) } finally { result.bitmap.recycle() }
     }
 
     @Test fun badDeclaredMimeFallsBackToRootFavicon() = runBlocking {
@@ -127,10 +258,13 @@ class SiteIconDiscovererTest {
     }
 
     private fun text(type: String, body: String) = MockResponse().setHeader("Content-Type", type).setBody(body)
-    private fun png(): MockResponse {
-        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+    private fun png(size: Int = 64): MockResponse = MockResponse().setHeader("Content-Type", "image/png")
+        .setBody(Buffer().write(pngBytes(size)))
+
+    private fun pngBytes(size: Int): ByteArray {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
         val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-        return MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(stream.toByteArray()))
+        try { bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream) } finally { bitmap.recycle() }
+        return stream.toByteArray()
     }
 }

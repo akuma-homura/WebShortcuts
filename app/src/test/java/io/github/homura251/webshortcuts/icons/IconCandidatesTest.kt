@@ -27,11 +27,13 @@ class IconCandidatesTest {
           {"src":"data:image/png;base64,xxxx","sizes":"512x512"}
         ]}""", "https://example.com/pwa/app.webmanifest")
         assertEquals(2, icons.size)
+        assertFalse(icons.first().maskable)
+        assertTrue(icons.last().maskable)
         assertEquals("https://example.com/pwa/icons/icon.png", icons.first().url)
         assertEquals("https://example.com/large.webp", IconCandidates.sorted(icons).first().url)
     }
 
-    @Test fun rankingPrefersLargeManifestThenAppleThenSizedLinkAndDeduplicates() {
+    @Test fun rankingPrioritizesResolutionBeforeSourceKindAndDeduplicates() {
         val icons = listOf(
             IconCandidate("https://site/f.ico", CandidateKind.FAVICON),
             IconCandidate("https://site/small.png", CandidateKind.MANIFEST, 48),
@@ -40,8 +42,18 @@ class IconCandidatesTest {
             IconCandidate("https://site/pwa.png", CandidateKind.MANIFEST, 512, "image/png"),
             IconCandidate("https://site/pwa.png", CandidateKind.LINK, 512),
         )
-        assertEquals(listOf("pwa.png", "apple.png", "link.png", "small.png", "f.ico"),
+        assertEquals(listOf("pwa.png", "link.png", "apple.png", "small.png", "f.ico"),
             IconCandidates.sorted(icons).map { it.url.substringAfterLast('/') })
+    }
+
+    @Test fun scalableAnd512PixelIconsFitTheBudgetBeforeMany192PixelDeclarations() {
+        val medium = (1..20).map { IconCandidate("https://site/medium$it.png", CandidateKind.MANIFEST, 192) }
+        val vector = IconCandidate("https://site/vector.svg", CandidateKind.LINK, 0, "image/svg+xml")
+        val large = IconCandidate("https://site/large.png", CandidateKind.LINK, 512, "image/png")
+        val result = IconCandidates.sorted(medium + large + vector)
+        assertEquals(vector, result[0])
+        assertEquals(large, result[1])
+        assertEquals(12, result.size)
     }
 
     @Test fun rejectsCredentialsAndHttpsDowngrade() {

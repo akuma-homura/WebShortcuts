@@ -1,7 +1,9 @@
 package io.github.homura251.webshortcuts.icons
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,7 +21,7 @@ class IconProcessorTest {
     private val processor = IconProcessor()
 
     @Test fun preservesAspectRatioAndProvidesAdaptiveSafePadding() {
-        val source = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val source = rectangleLogo(200, 100)
         val result = processor.normalize(source)
         assertEquals(512, result.width)
         assertEquals(512, result.height)
@@ -30,7 +32,7 @@ class IconProcessorTest {
 
     @Test fun squareWideAndTallLogosRemainEntirelyInsideTheCircularSafeZone() {
         for ((width, height) in listOf(128 to 128, 200 to 100, 100 to 200)) {
-            val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+            val source = rectangleLogo(width, height)
             val result = processor.normalize(source)
             try {
                 val pixels = IntArray(result.width * result.height)
@@ -65,6 +67,84 @@ class IconProcessorTest {
         }
     }
 
+    @Test fun transparentAndWhiteMarginsDoNotShrinkTheSameRoundLogo() {
+        val small = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        Canvas(small).drawCircle(50f, 50f, 40f, Paint().apply { color = Color.RED })
+        val padded = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        Canvas(padded).drawBitmap(small, 206f, 206f, null)
+        val white = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+        Canvas(white).drawBitmap(small, 206f, 206f, null)
+        val results = listOf(small, padded, white).map { processor.normalize(it) }
+        try {
+            assertTrue(results[0].sameAs(results[1]))
+            // Filtering a transparent edge and an edge already composited onto white can
+            // round channel values differently. Compare the actual visible artwork's size.
+            fun visibleSpan(bitmap: Bitmap) = (0 until 512).filter {
+                val pixel = bitmap.getPixel(it, 256)
+                Color.red(pixel) > 128 && Color.green(pixel) < 128
+            }
+            val transparentSpan = visibleSpan(results[0])
+            val whiteSpan = visibleSpan(results[2])
+            assertEquals(transparentSpan.first().toDouble(), whiteSpan.first().toDouble(), 1.0)
+            assertEquals(transparentSpan.last().toDouble(), whiteSpan.last().toDouble(), 1.0)
+            val diameter = (0 until 512).count { results[0].getPixel(it, 256) != Color.WHITE }
+            assertTrue("Round artwork should use the safe circle, not an inscribed square", diameter in 300..314)
+        } finally {
+            (results + listOf(small, padded, white)).forEach(Bitmap::recycle)
+        }
+    }
+
+    @Test fun maskableEightyPercentCircleUsesAndroidSafeCircleOnce() {
+        val source = Bitmap.createBitmap(500, 500, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        Canvas(source).drawCircle(250f, 250f, 200f, Paint().apply { color = Color.RED })
+        val result = processor.normalize(source, maskable = true)
+        try {
+            val diameter = (0 until 512).count { Color.red(result.getPixel(it, 256)) > 128 }
+            assertTrue("Web safe circle should map to the 66/108 Android circle", diameter in 308..314)
+            assertEquals("Extend the existing background instead of adding a white frame", Color.BLUE, result.getPixel(0, 0))
+        } finally { source.recycle(); result.recycle() }
+    }
+
+    @Test fun opaqueArtworkWithDifferentCornerDetailsKeepsAllFourCorners() {
+        val source = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLACK) }
+        val canvas = Canvas(source)
+        val colors = listOf(Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW)
+        listOf(0f to 0f, 180f to 0f, 0f to 180f, 180f to 180f).forEachIndexed { index, (x, y) ->
+            canvas.drawRect(x, y, x + 20f, y + 20f, Paint().apply { color = colors[index] })
+        }
+        val result = processor.normalize(source)
+        try {
+            val pixels = IntArray(512 * 512)
+            result.getPixels(pixels, 0, 512, 0, 0, 512, 512)
+            colors.forEach { assertTrue("All corner details must survive", it in pixels) }
+            for (y in 0 until 512) for (x in 0 until 512) {
+                if (result.getPixel(x, y) == Color.WHITE) continue
+                assertTrue(kotlin.math.hypot(x + 0.5 - 256, y + 0.5 - 256) <= 512 * IconPolicy.SAFE_ZONE_RATIO / 2)
+            }
+        } finally { source.recycle(); result.recycle() }
+    }
+
+    @Test fun metadataReportsOriginalRasterPixelsBeforeDownsampling() {
+        val source = Bitmap.createBitmap(2048, 1024, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val bytes = ByteArrayOutputStream().also { source.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val result = processor.decodeWithMetadata(bytes, "image/png")
+        try {
+            assertEquals(2048, result.sourceWidth)
+            assertEquals(1024, result.sourceHeight)
+            assertFalse(result.scalable)
+            assertEquals(512, result.bitmap.width)
+        } finally { source.recycle(); result.bitmap.recycle() }
+    }
+
+    @Test fun invisibleArtworkIsRejectedForBothOrdinaryAndMaskableSources() {
+        val source = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        try {
+            for (maskable in listOf(false, true)) {
+                assertThrows(IllegalArgumentException::class.java) { processor.normalize(source, maskable = maskable) }
+            }
+        } finally { source.recycle() }
+    }
+
     @Test fun readsPngAndRejectsMismatchedMime() {
         val png = png()
         assertEquals(512, processor.decode(png, "image/png").width)
@@ -89,11 +169,16 @@ class IconProcessorTest {
     }
 
     @Test fun simpleSvgIsRenderedInsideSafeZone() {
-        val svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#ff0000"/></svg>"""
+        val svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" fill="#ff0000"/></svg>"""
         val bitmap = processor.decode(svg.toByteArray(), "image/svg+xml")
         assertEquals(Color.RED, bitmap.getPixel(256, 256))
         assertEquals(Color.WHITE, bitmap.getPixel(20, 20))
     }
+
+    private fun rectangleLogo(width: Int, height: Int): Bitmap =
+        Bitmap.createBitmap(width + 2, height + 2, Bitmap.Config.ARGB_8888).also {
+            Canvas(it).drawRect(1f, 1f, width + 1f, height + 1f, Paint().apply { color = Color.RED })
+        }
 
     private fun png(): ByteArray {
         val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }

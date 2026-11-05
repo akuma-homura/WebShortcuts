@@ -90,6 +90,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -110,6 +111,7 @@ import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.IconResolver
+import io.github.homura251.webshortcuts.icons.IconPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -483,13 +485,21 @@ private fun BookmarkIcon(bookmark: BookmarkItem, iconResolver: IconResolver) {
     }
     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(48.dp)) {
         if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.testTag("bookmark_icon_${bookmark.id}"))
+            Image(bitmap!!.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().adaptiveIconViewport().testTag("bookmark_icon_${bookmark.id}"))
         } else {
             Box(contentAlignment = Alignment.Center) {
                 Text(bookmark.title.take(1).uppercase(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
         }
     }
+}
+
+// Adaptive foreground layers are 108dp, while the launcher's visible viewport is 72dp.
+// The surrounding Surface supplies the selected mask; showing the whole layer adds false padding.
+private fun Modifier.adaptiveIconViewport(): Modifier = graphicsLayer {
+    scaleX = 1f / IconPolicy.ADAPTIVE_VIEWPORT_RATIO
+    scaleY = 1f / IconPolicy.ADAPTIVE_VIEWPORT_RATIO
 }
 
 @Composable
@@ -686,7 +696,8 @@ private fun IconPreview(state: EditorUiState, round: Boolean, onRoundChange: (Bo
                     color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                     if (state.preview != null) {
-                        Image(state.preview.asImageBitmap(), contentDescription = stringResource(R.string.icon_preview), contentScale = ContentScale.Fit)
+                        Image(state.preview.asImageBitmap(), contentDescription = stringResource(R.string.icon_preview),
+                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().adaptiveIconViewport())
                     } else {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Language, contentDescription = stringResource(R.string.icon_preview), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)

@@ -14,7 +14,18 @@ internal data class IconCandidate(
     val kind: CandidateKind,
     val size: Int = 0,
     val mimeType: String? = null,
+    val maskable: Boolean = false,
 ) {
+    // A hint for the bounded request budget, never proof of the downloaded image's quality.
+    val resolutionRank: Int
+        get() = when {
+            mimeType == "image/svg+xml" -> 0
+            size >= IconPolicy.OUTPUT_SIZE -> 1
+            size >= 192 -> 2
+            size > 0 -> 3
+            else -> 4
+        }
+
     val rank: Int
         get() = when {
             kind == CandidateKind.MANIFEST && size >= 192 -> 0
@@ -59,12 +70,13 @@ internal object IconCandidates {
             val mime = item.optString("type").substringBefore(';').trim().lowercase(Locale.ROOT).ifEmpty { null }
             if (mime != null && mime !in IconPolicy.supportedMimeTypes) return@mapNotNull null
             val src = resolve(manifestUrl, item.optString("src")) ?: return@mapNotNull null
-            IconCandidate(src, CandidateKind.MANIFEST, size(item.optString("sizes")), mime)
+            IconCandidate(src, CandidateKind.MANIFEST, size(item.optString("sizes")), mime, maskable = "maskable" in purpose)
         }
     }
 
     fun sorted(candidates: List<IconCandidate>): List<IconCandidate> {
-        val ranked = candidates.sortedWith(compareBy<IconCandidate> { it.rank }
+        val ranked = candidates.sortedWith(compareBy<IconCandidate> { it.resolutionRank }
+            .thenBy { it.rank }
             .thenByDescending { it.size.coerceAtMost(IconPolicy.MAX_DIMENSION) }
             .thenBy { if (it.mimeType in setOf("image/png", "image/webp")) 0 else 1 })
             .distinctBy { it.url }
