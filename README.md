@@ -10,6 +10,7 @@ WebShortcuts v1.1 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 - **三种图标模式**：自动发现网站图标、系统 Photo Picker 导入图片、根据名称生成字母/汉字图标。模式显式切换，自定义图片不会被自动刷新覆盖。
 - **自动图标**：解析 Web App Manifest、Apple Touch Icon、HTML 图标和 `/favicon.ico`，按优先级及尺寸选择；支持 PNG、JPEG、WebP、安全 SVG 与 ICO 的 PNG/DIB 帧。
 - **可靠回退**：离线、解码失败或没有网站图标时显示生成图标；刷新失败保留可用缓存，模式继续保持 AUTO。
+- **顺畅保存**：自动抓图尚未完成时也能先保存收藏；缺失的自动图标在后台继续获取，返回时再次检查当前模式和版本，避免覆盖后续编辑。
 - **桌面同步**：修改名称、网址或图标后更新相同 UUID 的已固定快捷方式。桌面入口只携带书签 ID，点击时读取最新 URL。
 - **浏览器登录状态**：优先使用 Chrome Custom Tabs，复用所选浏览器的正常配置和 Cookie；没有 Chrome 时尝试其他 Custom Tabs 浏览器及系统浏览器。
 - **Material 3**：动态色彩、深色模式、完整编辑页、实时图标预览、圆形/圆角遮罩、删除与放弃编辑确认、错误和进度反馈。

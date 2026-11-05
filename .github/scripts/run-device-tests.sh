@@ -8,4 +8,4 @@ collect_screenshots() {
 }
 trap collect_screenshots EXIT
 
-./gradlew --no-daemon :app:connectedDebugAndroidTest
+./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:connectedDebugAndroidTest

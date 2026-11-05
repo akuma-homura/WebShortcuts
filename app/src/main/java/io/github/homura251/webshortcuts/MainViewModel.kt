@@ -273,6 +273,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
             changeEditor { it.copy(error = "请先选择一张自定义图片，或切换图标模式") }
             return
         }
+        val continueAutomaticFetch = editor.mode == IconSourceMode.AUTO &&
+            (fetchJob?.isActive == true || lastAttemptedUrl != url)
         fetchJob?.cancel()
         fetchEpoch++
         changeEditor { it.copy(saving = true, loading = false, error = null) }
@@ -282,6 +284,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             var saved = false
             var wasPinned = false
             var synced = false
+            var backgroundFetch: BookmarkItem? = null
             try {
                 container.mutationMutex.withLock {
                     val latest = repository.find(editor.id)
@@ -305,6 +308,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
                     )
                     repository.save(item)
                     saved = true
+                    if (continueAutomaticFetch && item.autoImagePath == null) backgroundFetch = item
                     wasPinned = container.shortcutPublisher.isPinned(item.id)
                     synced = if (wasPinned) try { container.shortcutPublisher.update(item) } catch (error: Exception) { rethrowCancellation(error); false } else true
                     cleanUnusedIcons()
@@ -318,10 +322,14 @@ class MainViewModel(application: Application, private val savedState: SavedState
             }
             closeEditor()
             notify(when {
+                backgroundFetch != null -> "已保存，正在继续获取网站图标"
                 !synced -> "已保存；桌面更新暂未完成，可在收藏菜单中重试"
                 wasPinned -> "已保存并请求更新桌面快捷方式"
                 else -> "已保存，可在收藏菜单中添加到桌面"
             })
+            // Save is immediate. A late AUTO image still goes through refreshOne's mode/URL/version
+            // checks, so it cannot replace a custom image selected after the editor closes.
+            backgroundFetch?.let(::refresh)
         }
     }
 

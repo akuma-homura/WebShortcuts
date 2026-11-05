@@ -34,7 +34,7 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Build debug, verify tests and lint, and shrink release
-        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+        run: ./gradlew --no-daemon --continue --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
       - name: Verify minimal APK permissions
         run: python3 .github/scripts/verify-permissions.py
       - name: Upload installable debug APK
@@ -78,6 +78,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Build app and instrumentation APKs before starting the emulator
+        run: ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

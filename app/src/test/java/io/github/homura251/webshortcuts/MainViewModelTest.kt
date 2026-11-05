@@ -160,6 +160,68 @@ class MainViewModelTest {
         assertEquals(damaged, metadata.readText())
     }
 
+    @Test fun `saving during automatic discovery persists immediately and finishes the icon in background`() = runBlocking {
+        val server = MockWebServer()
+        val iconRequested = CountDownLatch(1)
+        val allowIconResponse = CountDownLatch(1)
+        val greenPng = ByteArrayOutputStream().also { bitmap(Color.GREEN).compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> MockResponse().setHeader("Content-Type", "text/html")
+                    .setBody("""<head><link rel="icon" sizes="192x192" href="/icon.png"></head>""")
+                "/icon.png" -> {
+                    iconRequested.countDown()
+                    // Both the cancelled editor request and its background replacement are held
+                    // until the test has observed the committed bookmark and closed editor.
+                    if (allowIconResponse.await(5, TimeUnit.SECONDS)) {
+                        MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(greenPng))
+                    } else MockResponse().setResponseCode(503)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+        try {
+            val vm = createViewModel()
+            val url = server.url("/site").toString()
+            vm.add()
+            vm.setTitle("Saved before icon arrives")
+            vm.setUrl(url)
+            vm.onUrlFocusLost()
+            val id = vm.state.value.editor!!.id
+            assertTrue(withContext(Dispatchers.IO) { iconRequested.await(5, TimeUnit.SECONDS) })
+            assertTrue(vm.state.value.editor!!.loading)
+
+            vm.save()
+            val repository = application.container.repository
+            val initial = withTimeout(5_000) {
+                repository.bookmarks.first { items -> items.any { it.id == id } }.single { it.id == id }
+            }
+            awaitEditorClosed(vm)
+            assertEquals(IconSourceMode.AUTO, initial.selectedIconSource)
+            assertNull(initial.autoImagePath)
+            assertEquals(1, initial.imageVersion)
+            assertEquals(1L, allowIconResponse.count)
+
+            allowIconResponse.countDown()
+            val completed = withTimeout(5_000) {
+                repository.bookmarks.first { items -> items.any { it.id == id && it.autoImagePath != null } }
+                    .single { it.id == id }
+            }
+            assertEquals(url, completed.url)
+            assertEquals("Saved before icon arrives", completed.title)
+            assertEquals(IconSourceMode.AUTO, completed.selectedIconSource)
+            assertTrue(completed.imageVersion > initial.imageVersion)
+            assertNotNull(completed.lastFetchedAt)
+            assertTrue(completed.sourceUrl!!.endsWith("/icon.png"))
+            assertEquals(Color.GREEN, application.container.iconStore.read(completed.autoImagePath)!!.getPixel(256, 256))
+            assertNull(vm.state.value.editor)
+        } finally {
+            allowIconResponse.countDown()
+            server.shutdown()
+        }
+    }
+
     @Test fun `bulk refresh finishing after a custom save cannot replace the user image`() = runBlocking {
         val server = MockWebServer()
         val iconRequested = CountDownLatch(1)

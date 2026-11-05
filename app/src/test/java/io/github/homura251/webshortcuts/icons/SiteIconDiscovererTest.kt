@@ -20,6 +20,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -47,12 +49,21 @@ class SiteIconDiscovererTest {
     }
 
     @Test fun badDeclaredMimeFallsBackToRootFavicon() = runBlocking {
-        server.enqueue(text("text/html", """<head><link rel="icon" sizes="192x192" href="/bad.png"></head>"""))
-        server.enqueue(text("text/html", "<html>not an image</html>"))
-        server.enqueue(png())
+        // QueueDispatcher special-cases /favicon.ico as 404 without consuming enqueued responses.
+        // Route explicitly so this tests the application's fallback, not the fixture's browser shortcut.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head><link rel="icon" sizes="192x192" href="/bad.png"></head>""")
+                "/bad.png" -> text("text/html", "<html>not an image</html>")
+                "/favicon.ico" -> png()
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
         val result = discoverer.fetch(server.url("/site").toString())
+        assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
         assertEquals(3, server.requestCount)
+        assertEquals(listOf("/site", "/bad.png", "/favicon.ico"), recordedPaths(3))
     }
 
     @Test fun manyBrokenDeclarationsStillReachRootFaviconWithinCandidateBudget() = runBlocking {
@@ -71,12 +82,20 @@ class SiteIconDiscovererTest {
     }
 
     @Test fun oversizedIconSkipsToFallback() = runBlocking {
-        server.enqueue(text("text/html", """<head><link rel="icon" sizes="192x192" href="/large.png"></head>"""))
-        server.enqueue(MockResponse().setHeader("Content-Type", "image/png")
-            .setBody(Buffer().write(ByteArray(IconPolicy.MAX_IMAGE_BYTES + 1))))
-        server.enqueue(png())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head><link rel="icon" sizes="192x192" href="/large.png"></head>""")
+                "/large.png" -> MockResponse().setHeader("Content-Type", "image/png")
+                    .setBody(Buffer().write(ByteArray(IconPolicy.MAX_IMAGE_BYTES + 1)))
+                "/favicon.ico" -> png()
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
         val result = discoverer.fetch(server.url("/site").toString())
+        assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf("/site", "/large.png", "/favicon.ico"), recordedPaths(3))
     }
 
     @Test fun callerCancellationStopsAnUnresponsiveRequest() = runBlocking {
@@ -91,10 +110,20 @@ class SiteIconDiscovererTest {
     }
 
     @Test fun redirectLoopsAreBounded() = runBlocking {
-        repeat(5) { server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/loop")) }
-        server.enqueue(MockResponse().setResponseCode(404))
+        val requests = AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = if (requests.incrementAndGet() <= 5) {
+                MockResponse().setResponseCode(302).setHeader("Location", "/loop")
+            } else MockResponse().setResponseCode(404)
+        }
         assertNull(discoverer.fetch(server.url("/loop").toString()))
         assertEquals(6, server.requestCount)
+        // Four page attempts exhaust its redirect budget; the root fallback starts a new bounded chain.
+        assertEquals(listOf("/loop", "/loop", "/loop", "/loop", "/favicon.ico", "/loop"), recordedPaths(6))
+    }
+
+    private fun recordedPaths(count: Int): List<String?> = (1..count).map {
+        server.takeRequest(1, TimeUnit.SECONDS)?.path
     }
 
     private fun text(type: String, body: String) = MockResponse().setHeader("Content-Type", type).setBody(body)
