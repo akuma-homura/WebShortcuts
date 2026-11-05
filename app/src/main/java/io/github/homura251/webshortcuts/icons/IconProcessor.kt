@@ -12,6 +12,7 @@ import androidx.exifinterface.media.ExifInterface
 import com.caverock.androidsvg.SVG
 import java.io.ByteArrayInputStream
 import java.util.Locale
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /** All decoded images are bounded, then letterboxed into the adaptive icon safe zone. */
@@ -49,8 +50,10 @@ class IconProcessor {
             val top = (source.height - side) / 2
             Rect(left, top, left + side, top + side)
         } else Rect(0, 0, source.width, source.height)
-        val safeSize = IconPolicy.OUTPUT_SIZE * IconPolicy.SAFE_ZONE_RATIO
-        val scale = minOf(safeSize / sourceRect.width(), safeSize / sourceRect.height())
+        // The 66/108 safe zone is a circle: fit the whole rectangle's diagonal, including corners.
+        // Reserve one pixel radially for filtering and rasterization at the destination edge.
+        val safeDiameter = IconPolicy.OUTPUT_SIZE * IconPolicy.SAFE_ZONE_RATIO - 2f
+        val scale = safeDiameter / hypot(sourceRect.width().toFloat(), sourceRect.height().toFloat())
         val width = sourceRect.width() * scale
         val height = sourceRect.height() * scale
         val offsetX = (IconPolicy.OUTPUT_SIZE - width) / 2

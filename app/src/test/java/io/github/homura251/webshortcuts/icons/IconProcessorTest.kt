@@ -28,6 +28,43 @@ class IconProcessorTest {
         assertEquals(Color.WHITE, result.getPixel(50, 256))
     }
 
+    @Test fun squareWideAndTallLogosRemainEntirelyInsideTheCircularSafeZone() {
+        for ((width, height) in listOf(128 to 128, 200 to 100, 100 to 200)) {
+            val source = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+            val result = processor.normalize(source)
+            try {
+                val pixels = IntArray(result.width * result.height)
+                result.getPixels(pixels, 0, result.width, 0, 0, result.width, result.height)
+                val center = result.width / 2.0
+                val radius = result.width * IconPolicy.SAFE_ZONE_RATIO.toDouble() / 2.0
+                var farthestSquared = 0.0
+                var left = result.width
+                var right = -1
+                var top = result.height
+                var bottom = -1
+                for (y in 0 until result.height) for (x in 0 until result.width) {
+                    if (pixels[y * result.width + x] == Color.WHITE) continue
+                    val dx = x + 0.5 - center
+                    val dy = y + 0.5 - center
+                    farthestSquared = maxOf(farthestSquared, dx * dx + dy * dy)
+                    left = minOf(left, x)
+                    right = maxOf(right, x)
+                    top = minOf(top, y)
+                    bottom = maxOf(bottom, y)
+                }
+                assertEquals("$width x $height center", Color.RED, result.getPixel(256, 256))
+                assertTrue("$width x $height logo extends beyond the safe circle", farthestSquared <= radius * radius)
+                assertEquals("$width x $height aspect ratio", width.toDouble() / height,
+                    (right - left + 1).toDouble() / (bottom - top + 1), 0.03)
+                assertEquals("$width x $height horizontal centering", center - 0.5, (left + right) / 2.0, 0.5)
+                assertEquals("$width x $height vertical centering", center - 0.5, (top + bottom) / 2.0, 0.5)
+            } finally {
+                result.recycle()
+                source.recycle()
+            }
+        }
+    }
+
     @Test fun readsPngAndRejectsMismatchedMime() {
         val png = png()
         assertEquals(512, processor.decode(png, "image/png").width)

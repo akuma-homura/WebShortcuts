@@ -23,6 +23,7 @@ WebShortcuts v1.1 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 - `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
 - `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，必须使用自己的正式签名后分发。
 - `verification-reports`、`device-test-reports`：单元测试、Lint 和设备测试结果。
+- `device-screenshots`：Android 模拟器实际渲染的浅色、深色和编辑页截图，演示数据只存在于测试中。
 
 每个构建的 debug 签名由 CI 环境生成，跨运行安装时可能需要先卸载旧 debug 包。卸载会删除本地收藏；正式长期使用请维护固定的发布签名。发布签名和密钥不会写入仓库。
 

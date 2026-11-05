@@ -80,6 +80,11 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Install compile SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Reserve disk space for the emulator
+        run: |
+          # This Kotlin-only project does not use the runner's preinstalled native toolchains.
+          sudo rm -rf "${ANDROID_HOME:?}/ndk" "${ANDROID_HOME:?}/cmake"
+          df -h /
       - name: Build app and instrumentation APKs before starting the emulator
         run: ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Enable KVM
@@ -94,6 +99,7 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_2
+          disk-size: 2048M
           disable-animations: true
           script: bash .github/scripts/run-device-tests.sh
       - name: Upload device screenshots
