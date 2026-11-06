@@ -34,6 +34,14 @@ JSON schemaVersion 为 3，读取兼容旧列表格式和 v1/v2 字段。模型�
 
 优先选择 Chrome 的 Custom Tabs 提供者，否则使用其他提供者，最后退回可处理网址的系统浏览器。不创建 WebView，也不使用隔离的临时浏览会话。应用无权读取浏览器 Cookie。
 
+## 外观状态与颜色
+
+- `ui/theme/ThemePreferences` 将主题模式、动态配色开关、精选色板和首页布局写入独立的 `appearance` SharedPreferences，通过 StateFlow 在 Activity 中收集；不参与书签 JSON、图片存储或编辑草稿事务。
+- 五套明暗色板由 Material Color Utilities 0.3.0 的 HCT / `SchemeTonalSpot`（标准对比度）生成静态令牌，包含五级表面容器；应用没有新增依赖。Android 12+ 开启动态配色时使用系统方案，较旧系统回退至已选色板。
+- 图标色调只在 UI 层后台采样，每张图最多读取 24×24 个像素，忽略透明和近中性色；不修改、不回收调用方 Bitmap，不建立无界图片缓存。卡片、徽章和预览以 16% 为目标染色，并在需要时降低比例，保证正文色的对比度至少 4.5:1。
+- 首页的列表和双列网格共用有稳定 key 的 LazyVerticalGrid；完整宽度的导语、搜索、空状态和刷新反馈跨越所有列。编辑器、裁切页及书签操作保留原有语义与测试锚点。
+- `ThemePreferencesTest`、`PaletteContrastTest`、`IconAccentTest` 验证偏好恢复、色彩对比度和采样边界；`AppearanceInteractionTest` 验证外观面板、双列布局与小屏首屏操作。
+
 ## 构建与验证
 
 - Gradle Wrapper 8.13 的脚本和 JAR 来自 Gradle 官方 v8.13.0 标签。

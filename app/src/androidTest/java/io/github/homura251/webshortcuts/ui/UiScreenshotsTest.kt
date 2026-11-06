@@ -23,6 +23,8 @@ import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.IconProcessor
 import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.icons.IconStore
+import io.github.homura251.webshortcuts.ui.theme.AppearancePreferences
+import io.github.homura251.webshortcuts.ui.theme.LayoutMode
 import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
 import java.io.File
 import org.junit.Assert.assertTrue
@@ -40,6 +42,7 @@ class UiScreenshotsTest {
         val resolver = IconResolver(context, IconStore(context), processor)
         val uiState = mutableStateOf(HomeUiState(loading = false))
         val darkTheme = mutableStateOf(false)
+        val appearance = mutableStateOf(AppearancePreferences(dynamicColor = false))
         val source = landscapeFixture()
         val fit = processor.normalize(source, centerCrop = false)
         val cropped = processor.normalize(source, centerCrop = true)
@@ -68,6 +71,7 @@ class UiScreenshotsTest {
                     onRefresh = {}, onRefreshAll = {}, onDelete = {}, onDismissEditor = {},
                     onTitleChange = {}, onUrlChange = {}, onUrlFocusLost = {}, onModeChange = {},
                     onPickImage = {}, onRefetchIcon = {}, onSave = {},
+                    appearance = appearance.value, onAppearanceChange = { appearance.value = it },
                     onCenterCropChange = { crop ->
                         uiState.value = uiState.value.copy(
                             editor = uiState.value.editor?.copy(centerCrop = crop, preview = if (crop) cropped else fit),
@@ -88,6 +92,15 @@ class UiScreenshotsTest {
         capture("home_screen", "02_home_light.png")
         compose.runOnIdle { darkTheme.value = true }
         capture("home_screen", "03_home_dark.png")
+
+        compose.runOnIdle {
+            darkTheme.value = false
+            appearance.value = appearance.value.copy(layoutMode = LayoutMode.GRID)
+        }
+        capture("home_screen", "08_home_grid.png")
+        compose.onNodeWithTag("open_appearance").performClick()
+        capture("appearance_sheet", "09_appearance.png")
+        compose.onNodeWithTag("close_appearance").performClick()
 
         compose.runOnIdle {
             darkTheme.value = false

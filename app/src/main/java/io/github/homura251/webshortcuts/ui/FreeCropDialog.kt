@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -97,7 +98,8 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
             crop.centerX + width / 2f, crop.centerY + height / 2f, minimum.width, minimum.height)
     }
 
-    Surface(shape = RoundedCornerShape(24.dp), modifier = Modifier.padding(12.dp)
+    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.padding(12.dp)
             .widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (screenHeight - 48).coerceAtLeast(200).dp)) {
             Column {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(20.dp),
@@ -106,7 +108,8 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
                         modifier = Modifier.semantics { heading() })
                     Text(stringResource(R.string.free_crop_help), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically) {
                         FilterChip(selected = !square, onClick = { square = false },
                             label = { Text(stringResource(R.string.free_crop_free_ratio)) },
                             modifier = Modifier.testTag("crop_ratio_free"))
@@ -186,14 +189,24 @@ internal fun FreeCropEditorPreview() {
 
 @Composable
 private fun CropSlider(label: String, value: Float, enabled: Boolean, tag: String, onValueChange: (Float) -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        val percentage = stringResource(R.string.free_crop_percent, (value * 100).roundToInt())
-        Slider(value = value, onValueChange = onValueChange, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().testTag(tag).semantics {
-                contentDescription = label
-                stateDescription = percentage
-            })
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            val percentage = stringResource(R.string.free_crop_percent, (value * 100).roundToInt())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.labelMedium)
+                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                    Text(percentage, style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
+            }
+            Slider(value = value, onValueChange = onValueChange, enabled = enabled,
+                modifier = Modifier.fillMaxWidth().testTag(tag).semantics {
+                    contentDescription = label
+                    stateDescription = percentage
+                })
+        }
     }
 }
 
@@ -205,6 +218,7 @@ private fun CropSelection(source: Bitmap, crop: CropRect, onCropChange: (CropRec
     val latestCrop by rememberUpdatedState(crop)
     val latestChange by rememberUpdatedState(onCropChange)
     val selectionColor = MaterialTheme.colorScheme.primary
+    val selectionContrast = MaterialTheme.colorScheme.onPrimary
     val canvasDescription = stringResource(R.string.free_crop_original)
     Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)
         .testTag("free_crop_canvas").semantics {
@@ -256,12 +270,13 @@ private fun CropSelection(source: Bitmap, crop: CropRect, onCropChange: (CropRec
         for (index in 1..2) {
             val x = selected.left + selected.width * index / 3f
             val y = selected.top + selected.height * index / 3f
-            drawLine(Color.White.copy(alpha = 0.65f), Offset(x, selected.top), Offset(x, selected.bottom), 1.dp.toPx())
-            drawLine(Color.White.copy(alpha = 0.65f), Offset(selected.left, y), Offset(selected.right, y), 1.dp.toPx())
+            drawLine(selectionContrast.copy(alpha = 0.65f), Offset(x, selected.top), Offset(x, selected.bottom), 1.dp.toPx())
+            drawLine(selectionContrast.copy(alpha = 0.65f), Offset(selected.left, y), Offset(selected.right, y), 1.dp.toPx())
         }
-        drawRect(Color.White, selected.topLeft, selected.size, style = Stroke(2.dp.toPx()))
+        drawRect(selectionContrast, selected.topLeft, selected.size, style = Stroke(4.dp.toPx()))
+        drawRect(selectionColor, selected.topLeft, selected.size, style = Stroke(2.dp.toPx()))
         listOf(selected.topLeft, selected.topRight, selected.bottomLeft, selected.bottomRight).forEach { position ->
-            drawCircle(Color.White, 7.dp.toPx(), position)
+            drawCircle(selectionContrast, 7.dp.toPx(), position)
             drawCircle(selectionColor, 4.dp.toPx(), position)
         }
     }
