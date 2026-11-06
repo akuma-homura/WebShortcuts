@@ -10,19 +10,10 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
-private val AppTypography = Typography().let { base ->
-    base.copy(
-        headlineSmall = base.headlineSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
-        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-        titleMedium = base.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        bodyLarge = base.bodyLarge.copy(lineHeight = 25.sp),
-        labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Medium),
-    )
-}
+// Keep Material 3's type scale and font scaling; density comes from layout and semantic roles.
+private val AppTypography = Typography()
 
 @Composable
 fun WebShortcutsTheme(

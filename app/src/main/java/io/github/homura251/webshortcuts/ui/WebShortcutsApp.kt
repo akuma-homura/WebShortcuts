@@ -7,6 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -61,7 +63,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -73,6 +74,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -94,11 +96,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -158,15 +163,16 @@ fun WebShortcutsApp(
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showAppearance by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<BookmarkItem?>(null) }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val autoCount = state.bookmarks.count { it.selectedIconSource == IconSourceMode.AUTO }
 
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("home_screen").nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            MediumTopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -267,7 +273,7 @@ fun WebShortcutsApp(
 @Composable
 internal fun EmptyBookmarks(onAdd: () -> Unit) {
     val compact = LocalConfiguration.current.screenHeightDp < 640
-    val heroSize = if (compact) 64.dp else 96.dp
+    val heroSize = if (compact) 64.dp else 80.dp
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -287,9 +293,9 @@ internal fun EmptyBookmarks(onAdd: () -> Unit) {
         }
         Text(
             stringResource(R.string.empty_title),
-            style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 16.dp).semantics { heading() },
+            modifier = Modifier.padding(top = 12.dp).semantics { heading() },
         )
         Text(
             stringResource(R.string.empty_body),
@@ -298,13 +304,13 @@ internal fun EmptyBookmarks(onAdd: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.widthIn(max = 390.dp).padding(top = 8.dp),
         )
-        Button(onClick = onAdd, modifier = Modifier.padding(top = 16.dp).heightIn(min = 52.dp)) {
+        Button(onClick = onAdd, modifier = Modifier.padding(top = 12.dp).heightIn(min = 48.dp)) {
             Icon(Icons.Default.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.add_first_site))
         }
         Row(
-            modifier = Modifier.padding(top = 18.dp),
+            modifier = Modifier.padding(top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -312,11 +318,11 @@ internal fun EmptyBookmarks(onAdd: () -> Unit) {
             Text(stringResource(R.string.local_only), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Surface(
-            modifier = Modifier.padding(top = 28.dp).widthIn(max = 440.dp).fillMaxWidth(),
+            modifier = Modifier.padding(top = 20.dp).widthIn(max = 440.dp).fillMaxWidth(),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = RoundedCornerShape(20.dp),
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 EmptyStep(Icons.Default.Link, stringResource(R.string.empty_step_one))
                 EmptyStep(Icons.Default.Image, stringResource(R.string.empty_step_two))
                 EmptyStep(Icons.Default.PushPin, stringResource(R.string.empty_step_three))
@@ -327,7 +333,7 @@ internal fun EmptyBookmarks(onAdd: () -> Unit) {
 
 @Composable
 private fun EmptyStep(icon: ImageVector, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
             Icon(icon, contentDescription = null, modifier = Modifier.padding(10.dp).size(20.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -336,6 +342,7 @@ private fun EmptyStep(icon: ImageVector, text: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BookmarkCard(
     bookmark: BookmarkItem,
@@ -367,7 +374,7 @@ internal fun BookmarkCard(
         BookmarkActions(bookmark, refreshing, onOpen, onPin, onEdit, onRefresh, onUpdateShortcut, onDelete)
     }
     val information: @Composable () -> Unit = {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(bookmark.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val domain = remember(bookmark.url) {
                 runCatching { java.net.URI(bookmark.url).host }.getOrNull()
@@ -375,40 +382,37 @@ internal fun BookmarkCard(
             }
             Text(domain, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Surface(shape = CircleShape, color = badge, contentColor = colors.onSecondaryContainer) {
-                Text(modeLabel(bookmark.selectedIconSource), style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
-            }
-            if (refreshing) {
-                Surface(shape = MaterialTheme.shapes.small, color = colors.tertiaryContainer,
-                    contentColor = colors.onTertiaryContainer) {
-                    Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp, color = LocalContentColor.current)
-                        Text(stringResource(R.string.fetching_icon), style = MaterialTheme.typography.labelSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
+                itemVerticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = badge, contentColor = colors.onSecondaryContainer) {
+                    Text(modeLabel(bookmark.selectedIconSource), style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                }
+                if (refreshing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp, color = colors.primary)
+                        Text(stringResource(R.string.fetching_icon), style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant)
                     }
+                } else if (refreshMessage != null) {
+                    Text(refreshMessage, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                } else if (bookmark.selectedIconSource == IconSourceMode.AUTO && bookmark.lastFetchedAt != null) {
+                    val description = stringResource(R.string.last_successful_fetch, formatIconTime(bookmark.lastFetchedAt))
+                    Text(formatIconTime(bookmark.lastFetchedAt, compact = true), style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant, modifier = Modifier.semantics { contentDescription = description })
                 }
-            } else if (refreshMessage != null) {
-                Surface(shape = MaterialTheme.shapes.small, color = colors.tertiaryContainer,
-                    contentColor = colors.onTertiaryContainer) {
-                    Text(refreshMessage, style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                }
-            } else if (bookmark.selectedIconSource == IconSourceMode.AUTO && bookmark.lastFetchedAt != null) {
-                Text(stringResource(R.string.last_successful_fetch, formatIconTime(bookmark.lastFetchedAt)),
-                    style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             }
         }
     }
     OutlinedCard(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth().testTag("bookmark_card_${bookmark.id}"),
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.outlinedCardColors(containerColor = container),
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f)),
     ) {
         if (compact) {
-            Column(Modifier.fillMaxWidth().heightIn(min = 190.dp).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(min = 160.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     BookmarkIcon(bookmark, bitmap, badge)
                     Spacer(Modifier.weight(1f))
@@ -417,10 +421,10 @@ internal fun BookmarkCard(
                 information()
             }
         } else {
-            Row(Modifier.fillMaxWidth().padding(start = 14.dp, top = 16.dp, bottom = 16.dp, end = 4.dp),
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 BookmarkIcon(bookmark, bitmap, badge)
-                Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp)) { information() }
+                Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) { information() }
                 actions()
             }
         }
@@ -468,7 +472,7 @@ private fun BookmarkMenuItem(text: Int, icon: ImageVector, enabled: Boolean = tr
 
 @Composable
 private fun BookmarkIcon(bookmark: BookmarkItem, bitmap: Bitmap?, container: androidx.compose.ui.graphics.Color) {
-    Surface(shape = RoundedCornerShape(14.dp), color = container, modifier = Modifier.size(52.dp)) {
+    Surface(shape = MaterialTheme.shapes.medium, color = container, modifier = Modifier.size(48.dp)) {
         if (bitmap != null) {
             Image(bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().adaptiveIconViewport().testTag("bookmark_icon_${bookmark.id}"))
@@ -500,7 +504,7 @@ private fun modeLabel(mode: IconSourceMode): String = stringResource(
 @Composable
 internal fun ErrorNotice(message: String, title: String? = null) {
     Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer, shape = RoundedCornerShape(16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (title != null) Text(title, style = MaterialTheme.typography.titleSmall)
@@ -510,7 +514,7 @@ internal fun ErrorNotice(message: String, title: String? = null) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun BookmarkEditor(
     state: EditorUiState,
@@ -539,10 +543,7 @@ private fun BookmarkEditor(
             if (state.dirty) askDiscard = true else onDismiss()
         }
     }
-    Dialog(
-        onDismissRequest = requestDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnBackPress = false),
-    ) {
+    EditorWindow(onDismiss = requestDismiss) {
         val view = LocalView.current
         val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
         SideEffect {
@@ -553,7 +554,6 @@ private fun BookmarkEditor(
                 }
             }
         }
-        BackHandler(onBack = requestDismiss)
         Surface(Modifier.fillMaxSize().testTag("editor_screen"), color = MaterialTheme.colorScheme.surface) {
             Scaffold(
                 modifier = Modifier.imePadding().nestedScroll(editorScrollBehavior.nestedScrollConnection),
@@ -564,7 +564,8 @@ private fun BookmarkEditor(
                         colors = TopAppBarDefaults.topAppBarColors(
                             scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                         ),
-                        title = { Text(stringResource(if (state.isNew) R.string.editor_new_title else R.string.editor_edit_title), style = MaterialTheme.typography.titleLarge) },
+                        title = { Text(stringResource(if (state.isNew) R.string.editor_new_title else R.string.editor_edit_title),
+                            style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         navigationIcon = {
                             IconButton(onClick = requestDismiss, enabled = !state.saving) {
                                 Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close))
@@ -576,13 +577,13 @@ private fun BookmarkEditor(
                     Surface(shadowElevation = 4.dp, color = MaterialTheme.colorScheme.surfaceContainer,
                         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) {
                         Row(
-                            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Button(
                                 onClick = onSave,
                                 enabled = !state.saving && !processingCustomImage,
-                                modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth().heightIn(min = 52.dp),
+                                modifier = Modifier.widthIn(max = 608.dp).fillMaxWidth().heightIn(min = 48.dp),
                             ) {
                                 if (state.saving || processingCustomImage) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = LocalContentColor.current)
@@ -602,15 +603,23 @@ private fun BookmarkEditor(
             ) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
                     Column(
-                        modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                        modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         IconPreview(state, roundPreview, fullCanvasPreview, showSafeZone,
                             onRoundChange = { roundPreview = it }, onFullCanvasChange = { fullCanvasPreview = it },
                             onSafeZoneChange = { showSafeZone = it })
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.icon_mode), style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
-                            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            if (LocalDensity.current.fontScale >= 1.5f) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    IconSourceMode.entries.forEach { mode ->
+                                        FilterChip(selected = state.mode == mode, enabled = !state.saving,
+                                            onClick = { focusManager.clearFocus(); onModeChange(mode) },
+                                            label = { Text(modeLabel(mode)) })
+                                    }
+                                }
+                            } else SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 val modes = IconSourceMode.entries
                                 modes.forEachIndexed { index, mode ->
                                     SegmentedButton(
@@ -641,7 +650,7 @@ private fun BookmarkEditor(
                         }
                         if (state.error != null) ErrorNotice(state.error)
                         Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(stringResource(R.string.website_details), style = MaterialTheme.typography.titleSmall,
                                     modifier = Modifier.semantics { heading() })
                                 OutlinedTextField(
@@ -651,7 +660,9 @@ private fun BookmarkEditor(
                                     label = { Text(stringResource(R.string.url_label)) },
                                     placeholder = { Text(stringResource(R.string.url_placeholder)) },
                                     leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
-                                    supportingText = { Text(state.urlError ?: stringResource(R.string.url_supporting)) },
+                                    supportingText = if (state.urlError != null || urlWasFocused) {
+                                        { Text(state.urlError ?: stringResource(R.string.url_supporting)) }
+                                    } else null,
                                     isError = state.urlError != null,
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, autoCorrectEnabled = false),
@@ -669,7 +680,7 @@ private fun BookmarkEditor(
                                     label = { Text(stringResource(R.string.title_label)) },
                                     placeholder = { Text(stringResource(R.string.title_placeholder)) },
                                     leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) },
-                                    supportingText = { Text(state.titleError ?: stringResource(R.string.title_supporting)) },
+                                    supportingText = if (state.titleError != null) { { Text(state.titleError) } } else null,
                                     isError = state.titleError != null,
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
@@ -679,7 +690,7 @@ private fun BookmarkEditor(
                                 )
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                             Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
                                 stringResource(if (state.isNew) R.string.save_new_hint else R.string.save_sync_hint),
@@ -708,47 +719,65 @@ private fun BookmarkEditor(
 }
 
 @Composable
+private fun EditorWindow(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    if (LocalInspectionMode.current) {
+        content()
+    } else {
+        Dialog(onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnBackPress = false)) {
+            BackHandler(onBack = onDismiss)
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun IconPreview(state: EditorUiState, round: Boolean, fullCanvas: Boolean, showSafeZone: Boolean,
                         onRoundChange: (Boolean) -> Unit, onFullCanvasChange: (Boolean) -> Unit,
                         onSafeZoneChange: (Boolean) -> Unit) {
     val accent by rememberIconAccent(state.preview)
     val colors = MaterialTheme.colorScheme
     val stageColor = animatedIconTint(colors.surfaceContainerLow, accent, colors.onSurface, colors.onSurfaceVariant)
-    Surface(shape = RoundedCornerShape(28.dp), color = stageColor, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(176.dp), contentAlignment = Alignment.Center) {
-                IconArtworkPreview(state.preview, round, fullCanvas, showSafeZone, Modifier.size(156.dp))
-                if (state.loading) CircularProgressIndicator(modifier = Modifier.size(174.dp), strokeWidth = 3.dp)
+    val largeFont = LocalDensity.current.fontScale >= 1.5f
+    val viewControls: @Composable () -> Unit = {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            FilterChip(selected = !fullCanvas, onClick = { onFullCanvasChange(false) }, modifier = Modifier.testTag("preview_launcher"), label = { Text(stringResource(R.string.preview_launcher)) })
+            FilterChip(selected = fullCanvas, onClick = { onFullCanvasChange(true) }, modifier = Modifier.testTag("preview_full_canvas"), label = { Text(stringResource(R.string.preview_full_canvas)) })
+        }
+    }
+    Surface(shape = MaterialTheme.shapes.large, color = stageColor, modifier = Modifier.fillMaxWidth().testTag("icon_preview_panel")) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(modifier = Modifier.size(96.dp), contentAlignment = Alignment.Center) {
+                    IconArtworkPreview(state.preview, round, fullCanvas, showSafeZone, Modifier.size(88.dp))
+                    if (state.loading) CircularProgressIndicator(modifier = Modifier.size(96.dp), strokeWidth = 3.dp)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(state.title.ifBlank { stringResource(R.string.icon_preview) }, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    if (!largeFont) viewControls()
+                    if (!showSafeZone) Text(stringResource(R.string.icon_preview_hint), style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant)
+                }
             }
-            Text(
-                state.title.ifBlank { stringResource(R.string.icon_preview) },
-                modifier = Modifier.padding(top = 12.dp),
-                maxLines = 2,
-                textAlign = TextAlign.Center,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                FilterChip(selected = !fullCanvas, onClick = { onFullCanvasChange(false) }, modifier = Modifier.testTag("preview_launcher"), label = { Text(stringResource(R.string.preview_launcher)) })
-                FilterChip(selected = fullCanvas, onClick = { onFullCanvasChange(true) }, modifier = Modifier.testTag("preview_full_canvas"), label = { Text(stringResource(R.string.preview_full_canvas)) })
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (largeFont) viewControls()
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 FilterChip(selected = !round, onClick = { onRoundChange(false) }, label = { Text(stringResource(R.string.preview_rounded)) })
                 FilterChip(selected = round, onClick = { onRoundChange(true) }, label = { Text(stringResource(R.string.preview_round)) })
+                FilterChip(selected = showSafeZone, onClick = { onSafeZoneChange(!showSafeZone) },
+                    modifier = Modifier.testTag("preview_safe_zone"), label = { Text(stringResource(R.string.show_safe_zone)) })
             }
-            FilterChip(selected = showSafeZone, onClick = { onSafeZoneChange(!showSafeZone) },
-                modifier = Modifier.testTag("preview_safe_zone"), label = { Text(stringResource(R.string.show_safe_zone)) })
-            Text(
-                stringResource(if (fullCanvas && showSafeZone) R.string.full_canvas_safe_hint else if (showSafeZone) R.string.safe_zone_hint else R.string.icon_preview_hint),
-                modifier = Modifier.padding(top = 4.dp),
+            if (showSafeZone) Text(
+                stringResource(if (fullCanvas) R.string.full_canvas_safe_hint else R.string.safe_zone_hint),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                color = colors.onSurfaceVariant,
             )
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModeControls(
     state: EditorUiState,
@@ -759,14 +788,14 @@ private fun ModeControls(
 ) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLowest,
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 stringResource(when (state.mode) {
                     IconSourceMode.AUTO -> R.string.auto_explanation
                     IconSourceMode.CUSTOM -> R.string.custom_explanation
                     IconSourceMode.GENERATED -> R.string.generated_explanation
                 }),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when (state.mode) {
@@ -777,7 +806,7 @@ private fun ModeControls(
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             shape = CircleShape,
                         ) {
-                            Text(state.sourceLabel, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                            Text(state.sourceLabel, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                         }
                     }
                     IconSourceDetails(state.sourceUrl, state.lastFetchedAt)
@@ -804,12 +833,12 @@ private fun ModeControls(
                     if (state.canCrop) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(stringResource(R.string.custom_framing), style = MaterialTheme.typography.titleSmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(
                                     selected = state.cropRect == null,
                                     onClick = { onCenterCropChange(false) },
                                     enabled = !state.loading && !state.saving,
-                                    modifier = Modifier.weight(1f).testTag("crop_fit"),
+                                    modifier = Modifier.testTag("crop_fit"),
                                     label = { Text(stringResource(R.string.crop_fit), textAlign = TextAlign.Center) },
                                     leadingIcon = if (state.cropRect == null) {
                                         { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
@@ -819,7 +848,7 @@ private fun ModeControls(
                                     selected = state.centerCrop,
                                     onClick = { onCenterCropChange(true) },
                                     enabled = !state.loading && !state.saving,
-                                    modifier = Modifier.weight(1f).testTag("crop_center"),
+                                    modifier = Modifier.testTag("crop_center"),
                                     label = { Text(stringResource(R.string.crop_center), textAlign = TextAlign.Center) },
                                     leadingIcon = if (state.centerCrop) {
                                         { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
@@ -844,8 +873,8 @@ private fun ModeControls(
     }
 }
 
-private fun formatIconTime(timestamp: Long): String =
-    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestamp))
+private fun formatIconTime(timestamp: Long, compact: Boolean = false): String =
+    DateFormat.getDateTimeInstance(if (compact) DateFormat.SHORT else DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestamp))
 
 @Composable
 private fun IconSourceDetails(sourceUrl: String?, lastFetchedAt: Long?) {

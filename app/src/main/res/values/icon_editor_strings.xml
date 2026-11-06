@@ -1,15 +1,15 @@
 <resources>
-    <string name="preview_launcher">桌面遮罩</string>
+    <string name="preview_launcher">桌面</string>
     <string name="preview_full_canvas">Full Canvas</string>
-    <string name="show_safe_zone">显示安全区</string>
-    <string name="safe_zone_hint">彩色圆圈内是安全区；外侧蒙层提示可能被桌面遮罩裁切的范围。辅助线不会保存到图标。</string>
-    <string name="full_canvas_safe_hint">完整画布保留全部边缘。彩色圆圈是安全区，白色虚线是桌面可见边界；辅助线不会保存。</string>
+    <string name="show_safe_zone">安全区</string>
+    <string name="safe_zone_hint">圆内为安全区，蒙层提示裁切范围；辅助线不会保存。</string>
+    <string name="full_canvas_safe_hint">彩色圆圈为安全区，虚线为桌面可见边界；辅助线不会保存。</string>
     <string name="free_crop_entry">自由裁切</string>
     <string name="reimport_to_crop">此图片未保留可编辑原图，重新导入后即可自由裁切。</string>
-    <string name="icon_source_url_label">图标来源 URL（长按可复制）</string>
+    <string name="icon_source_url_label">来源 URL · 长按复制</string>
     <string name="icon_source_url_empty">尚未获取到来源 URL</string>
-    <string name="icon_fetch_time_empty">最近同步：尚未成功获取</string>
-    <string name="last_successful_fetch">最近同步（成功获取）：%1$s</string>
-    <string name="refresh_progress_count">正在刷新自动图标：%1$d / %2$d</string>
+    <string name="icon_fetch_time_empty">尚未成功获取图标</string>
+    <string name="last_successful_fetch">最近获取：%1$s</string>
+    <string name="refresh_progress_count">刷新自动图标 %1$d / %2$d</string>
     <string name="dismiss_refresh_summary">关闭刷新结果</string>
 </resources>

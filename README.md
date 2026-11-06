@@ -17,7 +17,7 @@ WebShortcuts v1.1 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 - **桌面同步**：修改名称、网址或图标后更新相同 UUID 的已固定快捷方式。桌面入口只携带书签 ID，点击时读取最新 URL。
 - **浏览器登录状态**：优先使用 Chrome Custom Tabs，复用所选浏览器的正常配置和 Cookie；没有 Chrome 时尝试其他 Custom Tabs 浏览器及系统浏览器。
 - **个性化外观**：Android 12+ 默认使用壁纸动态配色，也可选择翡翠青、深海蓝、落日琥珀、鸢尾紫、樱花粉五套完整明暗色板；支持跟随系统、浅色和深色模式，设置保存在本机并即时生效。
-- **Material 3 界面**：舒适列表与双列网格一键切换，卡片与编辑器预览根据图标柔和染色；保留完整编辑页、圆形/圆角遮罩、删除与放弃编辑确认、错误和刷新进度反馈。
+- **Material 3 界面**：紧凑列表与双列网格一键切换，卡片与编辑器预览根据图标柔和染色；使用标准字号层级、小型顶栏和紧凑预览，保留 48dp 点击区域、完整编辑页及错误/刷新反馈。150% 及以上字体下网格自动使用单列，设置仍保留。
 - **隐私与资源限制**：只声明网络权限，无全盘/相册读取权限；文本、图像大小与分辨率均受限。
 
 ## 获取 APK
@@ -46,6 +46,8 @@ WebShortcuts v1.1 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手工安装 Gradle。
 
 工具链固定为 AGP 8.13.2、Gradle 8.13、Kotlin 2.2.21、Compose BOM 2025.12.00。构建依赖从 Google Maven 和 Maven Central 获取。
+
+`app/src/debug/.../ui/CompactUiPreviews.kt` 提供列表、网格、深色、图标编辑器、外观设置与 200% 字体预览。Android Studio 可直接渲染；安装 Android CLI 后也可运行 `android preview render :app --fqn=io.github.homura251.webshortcuts.ui.CompactUiPreviewsKt.CompactListPreview --component-tree`。这些预览仅使用本地演示数据。
 
 ## 使用方式
 

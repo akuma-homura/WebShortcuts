@@ -39,7 +39,10 @@ JSON schemaVersion 为 3，读取兼容旧列表格式和 v1/v2 字段。模型�
 - `ui/theme/ThemePreferences` 将主题模式、动态配色开关、精选色板和首页布局写入独立的 `appearance` SharedPreferences，通过 StateFlow 在 Activity 中收集；不参与书签 JSON、图片存储或编辑草稿事务。
 - 五套明暗色板由 Material Color Utilities 0.3.0 的 HCT / `SchemeTonalSpot`（标准对比度）生成静态令牌，包含五级表面容器；应用没有新增依赖。Android 12+ 开启动态配色时使用系统方案，较旧系统回退至已选色板。
 - 图标色调只在 UI 层后台采样，每张图最多读取 24×24 个像素，忽略透明和近中性色；不修改、不回收调用方 Bitmap，不建立无界图片缓存。卡片、徽章和预览以 16% 为目标染色，并在需要时降低比例，保证正文色的对比度至少 4.5:1。
-- 首页的列表和双列网格共用有稳定 key 的 LazyVerticalGrid；完整宽度的导语、搜索、空状态和刷新反馈跨越所有列。编辑器、裁切页及书签操作保留原有语义与测试锚点。
+- 首页的列表和双列网格共用有稳定 key 的 LazyVerticalGrid；统计、搜索、空状态和刷新反馈跨越所有列，无刷新时不生成占位行。字体缩放达到 150% 后自动使用单列卡片，不改变已保存的布局偏好。
+- 字体直接使用 Material 3 `Typography()`：页面标题 `titleLarge`（22/28sp）、收藏与预览标题 `titleMedium`（16/24sp）、分区标题 `titleSmall`（14/20sp）、正文 `bodyMedium`（14/20sp）、辅助文字 `bodySmall` / `labelMedium`（12/16sp）；输入框和交互标签保留组件默认字级。保留系统字体缩放，不通过压小字或禁用最小触控区域换取密度。
+- 小型顶栏使用 64dp 标准高度；首页边距 16dp、项目间距 8dp，列表卡片内纵向边距 8dp。编辑器预览选项按行换行，裁切尺寸和位置各为一对滑块；按钮、芯片和图标操作保留至少 48dp 触控区域，内容随字体增长并可滚动。URL 提示仅在聚焦或错误时显示，字段错误始终保留。
+- `CompactUiPreviews` 仅进入 debug 变体，覆盖 360dp 列表/网格/深色/编辑器、320dp 与 200% 字体、外观设置及裁切。`EditorWindow` 在 Layoutlib 中直接渲染内容，运行时仍使用原生 Dialog 和相同返回/放弃编辑逻辑。
 - `ThemePreferencesTest`、`PaletteContrastTest`、`IconAccentTest` 验证偏好恢复、色彩对比度和采样边界；`AppearanceInteractionTest` 验证外观面板、双列布局与小屏首屏操作。
 
 ## 构建与验证

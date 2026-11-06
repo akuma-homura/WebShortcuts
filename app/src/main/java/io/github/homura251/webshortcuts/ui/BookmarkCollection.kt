@@ -51,11 +51,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
@@ -86,33 +86,29 @@ internal fun BookmarkCollection(
     }
     val autoCount = state.bookmarks.count { it.selectedIconSource == IconSourceMode.AUTO }
     val grid = layoutMode == LayoutMode.GRID
+    // Two narrow cells cannot accommodate enlarged text and both 48dp action targets.
+    val columns = if (grid && LocalDensity.current.fontScale < 1.5f) 2 else 1
     LazyVerticalGrid(
-        columns = GridCells.Fixed(if (grid) 2 else 1),
+        columns = GridCells.Fixed(columns),
         modifier = Modifier.widthIn(max = 760.dp).fillMaxSize().testTag("bookmark_collection"),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (state.bookmarks.isNotEmpty()) {
             item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.home_tagline), style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.semantics { heading() })
-                    Text(stringResource(R.string.home_subtitle), style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CountBadge(stringResource(if (state.query.isBlank()) R.string.bookmark_count else R.string.filtered_count,
-                                filtered.size), Icons.Default.Language)
-                            if (state.query.isBlank()) CountBadge(stringResource(R.string.auto_count, autoCount), Icons.Default.Sync)
-                        }
-                        FilledTonalIconButton(onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) },
-                            modifier = Modifier.testTag("layout_toggle")) {
-                            Icon(if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
-                                contentDescription = stringResource(if (grid) R.string.show_list else R.string.show_grid))
-                        }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CountBadge(stringResource(if (state.query.isBlank()) R.string.bookmark_count else R.string.filtered_count,
+                            filtered.size), Icons.Default.Language)
+                        if (state.query.isBlank()) CountBadge(stringResource(R.string.auto_count, autoCount), Icons.Default.Sync)
+                    }
+                    FilledTonalIconButton(onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) },
+                        modifier = Modifier.testTag("layout_toggle")) {
+                        Icon(if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                            contentDescription = stringResource(if (grid) R.string.show_list else R.string.show_grid))
                     }
                 }
             }
@@ -133,8 +129,10 @@ internal fun BookmarkCollection(
             }
             state.bookmarks.isNotEmpty() -> {
                 item(key = "search", span = { GridItemSpan(maxLineSpan) }) { BookmarkSearch(state.query, onQueryChange) }
-                item(key = "refresh_feedback", span = { GridItemSpan(maxLineSpan) }) {
-                    RefreshFeedback(state, onClearRefreshSummary)
+                if (state.refreshing || state.refreshSummary != null) {
+                    item(key = "refresh_feedback", span = { GridItemSpan(maxLineSpan) }) {
+                        RefreshFeedback(state, onClearRefreshSummary)
+                    }
                 }
                 if (filtered.isEmpty()) item(key = "no_results", span = { GridItemSpan(maxLineSpan) }) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -149,7 +147,7 @@ internal fun BookmarkCollection(
                         bookmark, iconResolver, bookmark.id in state.refreshingIds, state.refreshMessages[bookmark.id],
                         onOpen = { onOpen(bookmark) }, onPin = { onPin(bookmark) }, onEdit = { onEdit(bookmark) },
                         onRefresh = { onRefresh(bookmark) }, onUpdateShortcut = { onUpdateShortcut(bookmark) },
-                        onDelete = { onDelete(bookmark) }, compact = grid,
+                        onDelete = { onDelete(bookmark) }, compact = columns > 1,
                     )
                 }
             }
@@ -161,7 +159,7 @@ internal fun BookmarkCollection(
 private fun CountBadge(text: String, icon: ImageVector) {
     Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(icon, null, Modifier.size(14.dp))
             Text(text, style = MaterialTheme.typography.labelMedium)
@@ -177,7 +175,7 @@ private fun BookmarkSearch(query: String, onQueryChange: (String) -> Unit) {
         border = if (focused) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         TextField(
             value = query, onValueChange = onQueryChange,
-            placeholder = { Text(stringResource(R.string.search_hint)) },
+            placeholder = { Text(stringResource(R.string.search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) IconButton(onClick = { onQueryChange("") }) {

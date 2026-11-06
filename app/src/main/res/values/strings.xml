@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">WebShortcuts</string>
-    <string name="home_tagline">常用网站，触手可及</string>
-    <string name="home_subtitle">收藏、定制图标，再放到桌面。</string>
     <string name="bookmark_count">%1$d 个网站</string>
     <string name="auto_count">%1$d 个自动图标</string>
     <string name="search_hint">搜索名称或网址</string>
@@ -42,33 +40,32 @@
     <string name="editor_new_title">添加网站</string>
     <string name="editor_edit_title">编辑网站</string>
     <string name="icon_preview">图标预览</string>
-    <string name="icon_preview_hint">安全边距让 Logo 在不同桌面形状下保持完整</string>
+    <string name="icon_preview_hint">桌面形状由启动器决定。</string>
     <string name="preview_round">圆形</string>
     <string name="preview_rounded">圆角</string>
     <string name="mode_auto">自动</string>
     <string name="mode_custom">自定义</string>
     <string name="mode_generated">字母</string>
-    <string name="mode_label_auto">自动获取</string>
-    <string name="mode_label_custom">自定义图片</string>
-    <string name="mode_label_generated">字母生成</string>
+    <string name="mode_label_auto">自动</string>
+    <string name="mode_label_custom">自定义</string>
+    <string name="mode_label_generated">字母</string>
     <string name="icon_mode">图标来源</string>
-    <string name="auto_explanation">优先使用网站的高清图标；获取失败时，会自动使用字母图标。</string>
+    <string name="auto_explanation">优先高清图标，获取失败时使用字母图标。</string>
     <string name="fetching_icon">正在寻找网站图标…</string>
     <string name="refetch_icon">重新抓取</string>
     <string name="auto_idle">输入有效网址后自动获取</string>
-    <string name="custom_explanation">图片仅导入本机。修改网址或刷新自动图标，都不会覆盖你的选择。</string>
+    <string name="custom_explanation">图片仅保存在本机，自动刷新不会覆盖。</string>
     <string name="choose_image">从相册选择图片</string>
     <string name="replace_image">更换图片</string>
     <string name="custom_retained">已保留上次选择的图片</string>
-    <string name="generated_explanation">根据名称的首字、字母或数字实时生成，配色由网站地址决定。</string>
+    <string name="generated_explanation">按名称生成图标，配色随域名保持一致。</string>
     <string name="url_label">网站地址</string>
     <string name="url_placeholder">例如 example.com</string>
     <string name="url_supporting">支持 HTTPS、HTTP 与内网地址</string>
     <string name="title_label">网站名称</string>
     <string name="title_placeholder">为网站起个容易辨认的名字</string>
-    <string name="title_supporting">也会用于桌面快捷方式的名称</string>
-    <string name="save_sync_hint">保存后，会请求更新这个网站已固定的桌面快捷方式。</string>
-    <string name="save_new_hint">保存后，可在网站菜单中选择“添加到桌面”。</string>
+    <string name="save_sync_hint">保存后请求更新已有桌面快捷方式。</string>
+    <string name="save_new_hint">保存后可在菜单中添加到桌面。</string>
     <string name="discard_title">放弃这次修改？</string>
     <string name="discard_body">尚未保存的名称、网址与图标选择将不会生效。</string>
     <string name="keep_editing">继续编辑</string>
@@ -79,7 +76,7 @@
     <string name="filtered_count">找到 %1$d 个网站</string>
     <string name="custom_framing">图片取景</string>
     <string name="crop_fit">完整图标</string>
-    <string name="crop_center">1:1 居中裁切</string>
-    <string name="crop_hint">完整图标保留图片边缘；居中裁切会取图片中央的正方形区域。</string>
+    <string name="crop_center">1:1 居中</string>
+    <string name="crop_hint">保留完整图片，或居中截取正方形。</string>
     <string name="processing_image">正在处理图片…</string>
 </resources>
