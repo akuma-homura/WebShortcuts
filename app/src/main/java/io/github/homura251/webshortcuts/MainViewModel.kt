@@ -582,12 +582,19 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     private fun changeEditor(transform: (EditorUiState) -> EditorUiState) {
-        mutableState.update { home -> home.copy(editor = home.editor?.let(transform)) }
-        persistEditor()
+        val editor = mutableState.value.editor ?: return
+        val epoch = editorEpoch
+        // Subscribers can save or recreate the editor as soon as they observe this state.
+        // Commit the matching draft snapshot before publishing readiness or changed coordinates.
+        persistEditor(transform(editor))
+        mutableState.update { home ->
+            if (editorEpoch == epoch && home.editor?.id == editor.id)
+                home.copy(editor = home.editor?.let(transform)) else home
+        }
     }
 
-    private fun persistEditor() {
-        val editor = mutableState.value.editor ?: return
+    private fun persistEditor(editor: EditorUiState? = mutableState.value.editor) {
+        editor ?: return
         savedState["draft.id"] = editor.id
         savedState["draft.new"] = editor.isNew
         savedState["draft.title"] = editor.title
