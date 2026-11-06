@@ -59,6 +59,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     init {
         viewModelScope.launch {
+            container.transferGate.busy.collect { busy -> mutableState.update { it.copy(transferBusy = busy) } }
+        }
+        viewModelScope.launch {
             repository.bookmarks.collect { items -> mutableState.update { it.copy(bookmarks = items) } }
         }
         viewModelScope.launch {
@@ -83,6 +86,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     fun setQuery(value: String) { mutableState.update { it.copy(query = value) } }
 
     fun add(url: String = "", title: String = "") {
+        if (transferBlocked()) return
         if (mutableState.value.loading) return
         if (mutableState.value.error != null) {
             notify("本地数据尚未成功读取，请重新打开应用后重试")
@@ -97,6 +101,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun edit(item: BookmarkItem) {
+        if (transferBlocked()) return
         beginEditor(item, EditorUiState(
             id = item.id, isNew = false, title = item.title, url = item.url,
             mode = item.selectedIconSource, sourceLabel = item.iconDescription,
@@ -313,6 +318,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun save() {
+        val collectionEpoch = container.transferGate.epoch
+        if (transferBlocked()) return
         val editor = mutableState.value.editor ?: return
         if (editor.saving) return
         if (importJob?.isActive == true) { notify("请等待图片处理完成后保存"); return }
@@ -322,8 +329,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         }
         val url = normalizeOrShowError(editor.url) ?: return
         val title = editor.title.trim()
-        if (title.isEmpty() || title.length > 80 || title.any { it.isISOControl() }) {
-            changeEditor { it.copy(titleError = "请输入 1–80 个字符的网站名称，不包含换行") }
+        if (title.isEmpty() || title.length > 160 || title.any { it.isISOControl() }) {
+            changeEditor { it.copy(titleError = "请输入 1–160 个字符的网站名称，不包含换行") }
             return
         }
         if (editor.mode == IconSourceMode.CUSTOM && customImage == null && original?.customImagePath == null) {
@@ -345,6 +352,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             var backgroundFetch: BookmarkItem? = null
             try {
                 container.mutationMutex.withLock {
+                    container.transferGate.requireWritable(collectionEpoch)
                     val latest = repository.find(editor.id)
                     check(editor.isNew || latest != null) { "此收藏已被删除" }
                     val previous = latest ?: original
@@ -396,9 +404,12 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun delete(item: BookmarkItem) {
+        val collectionEpoch = container.transferGate.epoch
+        if (transferBlocked()) return
         viewModelScope.launch {
             try {
                 container.mutationMutex.withLock {
+                    container.transferGate.requireWritable(collectionEpoch)
                     repository.delete(item.id)
                     try { container.shortcutPublisher.disable(item.id) } catch (error: Exception) { rethrowCancellation(error) }
                     cleanUnusedIcons()
@@ -409,9 +420,12 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun pin(item: BookmarkItem) {
+        val collectionEpoch = container.transferGate.epoch
+        if (transferBlocked()) return
         viewModelScope.launch {
             try {
                 val accepted = container.mutationMutex.withLock {
+                    container.transferGate.requireWritable(collectionEpoch)
                     repository.find(item.id)?.let { container.shortcutPublisher.pin(it) } ?: false
                 }
                 notify(if (accepted) "已向桌面发送添加请求，请在系统提示中确认" else "当前桌面不支持添加，或系统暂时无法处理请求")
@@ -420,6 +434,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun updateShortcut(item: BookmarkItem) {
+        val collectionEpoch = container.transferGate.epoch
+        if (transferBlocked()) return
         viewModelScope.launch {
             try {
                 if (!container.shortcutPublisher.isPinned(item.id)) {
@@ -427,6 +443,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
                     return@launch
                 }
                 val updated = container.mutationMutex.withLock {
+                    container.transferGate.requireWritable(collectionEpoch)
                     repository.find(item.id)?.let { container.shortcutPublisher.update(it) } ?: false
                 }
                 notify(if (updated) "已请求更新桌面快捷方式，实际刷新时间取决于桌面启动器" else "系统暂未接受更新，请稍后重试")
@@ -435,6 +452,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun refresh(item: BookmarkItem) {
+        if (transferBlocked()) return
         if (item.selectedIconSource != IconSourceMode.AUTO) { notify("只有自动模式的图标会被刷新"); return }
         if (item.id in mutableState.value.refreshingIds) return
         viewModelScope.launch {
@@ -447,6 +465,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     fun clearRefreshSummary() { mutableState.update { it.copy(refreshSummary = null) } }
 
     fun refreshAll() {
+        if (transferBlocked()) return
         if (mutableState.value.refreshing) return
         val candidates = repository.bookmarks.value.filter { it.selectedIconSource == IconSourceMode.AUTO }
         if (candidates.isEmpty()) { notify("暂无需要刷新的自动图标"); return }
@@ -480,6 +499,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     private suspend fun refreshOne(snapshot: BookmarkItem): RefreshResult {
+        val collectionEpoch = container.transferGate.epoch
+        if (!container.transferGate.allowsMutation(collectionEpoch)) return RefreshResult.SKIPPED
         synchronized(refreshingIds) {
             if (!refreshingIds.add(snapshot.id)) return RefreshResult.SKIPPED
             mutableState.update { it.copy(
@@ -494,6 +515,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             val result = container.siteIconDiscoverer.fetch(snapshot.url) ?: return outcome
             fetched = result
             outcome = container.mutationMutex.withLock {
+                if (!container.transferGate.allowsMutation(collectionEpoch)) return@withLock RefreshResult.SKIPPED
                 val latest = repository.find(snapshot.id) ?: return@withLock RefreshResult.SKIPPED
                 // An editor may have saved a custom icon, different URL, or newer auto image during IO.
                 if (latest.selectedIconSource != IconSourceMode.AUTO || latest.url != snapshot.url || latest.imageVersion != snapshot.imageVersion) return@withLock RefreshResult.SKIPPED
@@ -664,6 +686,11 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun notify(message: String) { messageChannel.trySend(message) }
+    private fun transferBlocked(): Boolean {
+        if (!container.transferGate.busy.value) return false
+        notify("导入导出进行中，请完成或取消当前操作")
+        return true
+    }
     private fun rethrowCancellation(error: Exception) { if (error is CancellationException) throw error }
     private enum class RefreshResult(val message: String) {
         UPDATED("已更新图标，保存在此设备"),

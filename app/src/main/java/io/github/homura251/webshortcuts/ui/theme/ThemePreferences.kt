@@ -42,14 +42,20 @@ class ThemePreferences(context: Context) {
     val state: StateFlow<AppearancePreferences> = mutableState.asStateFlow()
 
     fun update(value: AppearancePreferences) {
-        preferences.edit()
-            .putString("theme_mode", value.themeMode.name)
-            .putBoolean("dynamic_color", value.dynamicColor)
-            .putString("palette", value.palette.name)
-            .putString("layout_mode", value.layoutMode.name)
-            .apply()
+        edit(value).apply()
         mutableState.value = value
     }
+
+    /** Used on an I/O dispatcher so a completed restore includes persisted preferences. */
+    fun restore(value: AppearancePreferences): Boolean {
+        if (!edit(value).commit()) return false
+        mutableState.value = value
+        return true
+    }
+
+    private fun edit(value: AppearancePreferences) = preferences.edit()
+        .putString("theme_mode", value.themeMode.name).putBoolean("dynamic_color", value.dynamicColor)
+        .putString("palette", value.palette.name).putString("layout_mode", value.layoutMode.name)
 
     private fun read() = AppearancePreferences(
         themeMode = enumPreference("theme_mode", ThemeMode.SYSTEM),

@@ -1,0 +1,35 @@
+<resources>
+    <string name="transfer_title">导入 / 导出</string>
+    <string name="transfer_subtitle">备份收藏与图标，或与浏览器交换书签。</string>
+    <string name="transfer_choose">选择 ZIP 或 HTML 文件</string>
+    <string name="transfer_export_zip">导出完整备份 ZIP</string>
+    <string name="transfer_zip_detail">收藏、图标原图、裁切参数与外观设置</string>
+    <string name="transfer_export_html">导出浏览器书签 HTML</string>
+    <string name="transfer_html_detail">仅名称和网址，支持浏览器通用书签格式</string>
+    <string name="transfer_backup_note">备份文件包含网址与图片，请保存在合适的位置。导出范围为全部收藏。</string>
+    <string name="transfer_preview_title">检查导入内容</string>
+    <string name="transfer_zip_format">WebShortcuts 完整备份</string>
+    <string name="transfer_html_format">浏览器 HTML 书签</string>
+    <string name="transfer_preview_counts">有效 %1$d 条 · 重复 %2$d 条 · 无效 %3$d 条</string>
+    <string name="transfer_new_counts">合并将新增 %1$d 条，保留本机 %2$d 条收藏。</string>
+    <string name="transfer_replace_counts">将以文件中的 %1$d 条收藏替换本机 %2$d 条。</string>
+    <string name="transfer_merge">合并</string>
+    <string name="transfer_replace">全量替换</string>
+    <string name="transfer_restore_appearance">恢复备份中的外观设置</string>
+    <string name="transfer_keep_local">重复项保留本机的名称和图标。</string>
+    <string name="transfer_html_note">文件夹中的书签平铺导入。图标先使用字母回退，可随后手动刷新。</string>
+    <string name="transfer_empty_html">没有可导入的 HTTP(S) 网站，不会替换本机收藏。</string>
+    <string name="transfer_limit">合并后超过 2000 条上限，请选择替换或整理本机收藏。</string>
+    <string name="transfer_confirm">确认导入</string>
+    <string name="transfer_replace_title">替换本机全部收藏？</string>
+    <string name="transfer_replace_body">本机 %1$d 条收藏将替换为文件中的 %2$d 条。未保留收藏的旧桌面入口将停用。</string>
+    <string name="transfer_replace_confirm">确认替换</string>
+    <string name="transfer_cancel_operation">取消操作</string>
+    <string name="transfer_committing">正在提交，请稍候…</string>
+    <string name="transfer_choose_destination">选择保存位置</string>
+    <string name="transfer_waiting_destination">导出文件已准备好，请选择保存位置。</string>
+    <string name="transfer_result">操作完成</string>
+    <string name="transfer_retry">重新选择</string>
+    <string name="transfer_done">完成</string>
+    <string name="transfer_exported_at">备份时间：%1$s</string>
+</resources>

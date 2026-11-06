@@ -45,6 +45,16 @@ JSON schemaVersion 为 3，读取兼容旧列表格式和 v1/v2 字段。模型�
 - `CompactUiPreviews` 仅进入 debug 变体，覆盖 360dp 列表/网格/深色/编辑器、320dp 与 200% 字体、外观设置及裁切。`EditorWindow` 在 Layoutlib 中直接渲染内容，运行时仍使用原生 Dialog 和相同返回/放弃编辑逻辑。
 - `ThemePreferencesTest`、`PaletteContrastTest`、`IconAccentTest` 验证偏好恢复、色彩对比度和采样边界；`AppearanceInteractionTest` 验证外观面板、双列布局与小屏首屏操作。
 
+## 手动导入导出
+
+- `transfer/TransferManager` 管理系统文档 URI、私有准备缓存和批量事务；`TransferViewModel` 只保存缓存 token、阶段及用户选项，不把图像或整份备份放入 SavedStateHandle。预览/提交状态发布前先更新恢复状态；旋转保留操作，进程中断仅恢复已完整准备的预览或导出文件。
+- ZIP 清单标识 `format=WebShortcutsBackup`、`formatVersion=1`、应用版本、导出时间和缺失图像数量。收藏数据仍使用 BookmarkCodec schema 3；外观使用枚举名称和动态色开关。只接收清单、收藏、外观及被引用的安全图像路径，校验实际 CRC、条目数、单文件尺寸与总量；不把归档路径直接写到应用数据目录。
+- HTML 使用现有 jsoup 的流式解析器读取 Netscape 书签，解码 BOM/声明字符集，不执行脚本、不加载资源；按规范化完整 URL 去重，保留路径、查询与 fragment。重复项取文件首次出现的有效记录，文件夹平铺。空名称回退域名，无效协议/名称计数跳过，名称上限与存储、编辑统一为 160 字符。
+- ZIP 按 ID 去重，HTML 按 URL 去重；合并保留本机记录，将新增项按文件顺序置顶，替换按导入顺序。图片恢复使用全新私有路径并保留已处理的 512px layer 原始字节，原图最多 2048px，不重复适配安全区。图片准备成功后通过 `replaceAll` 一次提交元数据，再清理未引用文件；失败保持原元数据和其引用图像。
+- `TransferGate` 的会话租约暂停收藏修改，并递增进程级代际。刷新在请求前与写入锁内检查代际，防止同 ID/URL/版本的旧请求在恢复后覆盖图片。导出快照与图片读取共用应用级 mutationMutex，外部文档写入发生在快照准备后。
+- 外观使用 AppContainer 中的同一实例，在收藏提交后按选项同步落盘并更新 UI，失败单独反馈。提交后只协调已存在的桌面快捷方式：保留的恢复并更新，移除的停用，新设备不会自动固定。启动器拒绝不回滚收藏。
+- 上限：收藏 2000 条；HTML/收藏 JSON 4 MiB；图标 5 MiB、原图 20 MiB；ZIP 压缩文件与实际解压总量各 256 MiB。已有收藏读取失败时继续执行现有原文件保护，不把错误当空列表导出或导入。
+
 ## 构建与验证
 
 - Gradle Wrapper 8.13 的脚本和 JAR 来自 Gradle 官方 v8.13.0 标签。

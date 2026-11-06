@@ -17,6 +17,7 @@ data class HomeUiState(
     val refreshMessages: Map<String, String> = emptyMap(),
     val query: String = "",
     val editor: EditorUiState? = null,
+    val transferBusy: Boolean = false,
 )
 
 data class EditorUiState(
