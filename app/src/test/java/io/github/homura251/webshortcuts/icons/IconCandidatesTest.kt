@@ -72,6 +72,27 @@ class IconCandidatesTest {
         assertEquals(11, result.count { it.kind == CandidateKind.MANIFEST })
     }
 
+    @Test fun reservesAllThreeRootFallbacksAndDeduplicatesDeclaredRootIcons() {
+        val declared = (1..30).map { IconCandidate("https://example.com/icon$it.png", CandidateKind.MANIFEST, 512) }
+        val fallbacks = IconCandidates.rootFallbacks("https://example.com/site/page?q=1#part")
+        val declaredRoot = IconCandidate("https://example.com/apple-touch-icon.png", CandidateKind.APPLE, 180)
+        val result = IconCandidates.sorted(declared + declaredRoot + fallbacks)
+        assertEquals(12, result.size)
+        assertEquals(9, result.count { it.kind == CandidateKind.MANIFEST })
+        assertEquals(fallbacks.map { it.url }, result.takeLast(3).map { it.url })
+        assertEquals(1, result.count { it.url == declaredRoot.url })
+        assertEquals(180, result.first { it.url == declaredRoot.url }.size)
+    }
+
+    @Test fun rootFallbacksUseOnlyThePageOriginAndPreserveItsPort() {
+        val root = "https://example.com:8443"
+        assertEquals(listOf("$root/apple-touch-icon.png", "$root/apple-touch-icon-precomposed.png", "$root/favicon.ico"),
+            IconCandidates.rootFallbacks("$root/nested/page?token=private#fragment").map { it.url })
+        assertTrue(IconCandidates.rootFallbacks(root).all { it.rootFallback })
+        assertTrue(IconCandidates.rootFallbacks("file:///tmp/page.html").isEmpty())
+        assertTrue(IconCandidates.rootFallbacks("https://name:password@example.com/page").isEmpty())
+    }
+
     @Test fun declaredSizesAreBounded() {
         assertEquals(512, IconCandidates.size("any"))
         assertEquals(192, IconCandidates.size("garbage 999999x999999 192x512"))

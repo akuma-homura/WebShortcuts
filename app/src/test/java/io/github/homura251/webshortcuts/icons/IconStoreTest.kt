@@ -86,4 +86,42 @@ class IconStoreTest {
         val result = IconResolver(context, store, processor).resolve(bookmark)
         assertNotEquals(Color.GREEN, result.getPixel(0, 0))
     }
+
+    @Test fun editableOriginalKeepsItsPixelsAndSurvivesInactiveCustomModeCleanup() = runBlocking {
+        val original = Bitmap.createBitmap(1600, 900, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        val obsolete = store.saveOriginal("editable", 1, original)
+        val current = store.saveOriginal("editable", 2, original)
+        val bookmark = BookmarkItem(id = "editable", title = "Example", url = "https://example.com/",
+            selectedIconSource = IconSourceMode.AUTO, customOriginalPath = current, customCrop = CropRect(0.1f, 0.2f, 0.7f, 0.9f))
+        store.cleanup(listOf(bookmark))
+        assertNull(store.readOriginal(obsolete))
+        val restored = store.readOriginal(current)!!
+        try {
+            assertEquals(1600, restored.width)
+            assertEquals(900, restored.height)
+            assertEquals(Color.GREEN, restored.getPixel(100, 100))
+            assertNull(store.read(current)) // The launcher resolver cannot confuse original and normalized images.
+        } finally { restored.recycle(); original.recycle() }
+        store.cleanup(emptyList())
+        assertNull(store.readOriginal(current))
+    }
+
+    @Test fun originalAtomicBackupIsRecoveredAndUnsafeOrOversizedOriginalsAreRejected() = runBlocking {
+        val image = Bitmap.createBitmap(1024, 768, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        val path = store.saveOriginal("original-backup", 1, image)
+        val base = File(context.filesDir, path)
+        assertTrue(base.renameTo(File(base.path + ".bak")))
+        val bookmark = BookmarkItem(id = "original-backup", title = "Example", url = "https://example.com/", customOriginalPath = path)
+        store.cleanup(listOf(bookmark))
+        val restored = store.readOriginal(path)!!
+        try { assertEquals(Color.BLUE, restored.getPixel(512, 384)) } finally { restored.recycle(); image.recycle() }
+        assertNull(store.readOriginal("icons/original/../../sentinel.txt"))
+        val huge = Bitmap.createBitmap(2049, 1, Bitmap.Config.ARGB_8888)
+        try {
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { store.saveOriginal("oversized", 1, huge) }
+            }
+        } finally { huge.recycle() }
+        Unit
+    }
 }

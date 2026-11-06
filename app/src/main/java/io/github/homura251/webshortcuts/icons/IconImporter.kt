@@ -12,9 +12,35 @@ import kotlin.coroutines.coroutineContext
 /** Two safe normalized previews; no original photo or long-lived URI permission is retained. */
 data class ImportedIcon(val fitted: Bitmap, val cropped: Bitmap)
 
+/** A private editable original and its complete-icon preview, both owned by the editor. */
+data class EditableIcon(val original: Bitmap, val fitted: Bitmap)
+
 /** Accepts a scoped Photo Picker / OpenDocument URI; never asks for broad storage access. */
 class IconImporter(context: Context, private val processor: IconProcessor) {
     private val resolver = context.applicationContext.contentResolver
+
+    suspend fun importEditable(uri: Uri): EditableIcon {
+        var result: EditableIcon? = null
+        try {
+            return withContext(Dispatchers.IO) {
+                val (bytes, mime) = read(uri)
+                val importContext = coroutineContext
+                val original = processor.decodeEditable(bytes, mime, checkpoint = { importContext.ensureActive() })
+                try {
+                    importContext.ensureActive()
+                    val fitted = processor.crop(original, null)
+                    try {
+                        importContext.ensureActive()
+                        EditableIcon(original, fitted).also { result = it }
+                    } catch (failure: Throwable) { fitted.recycle(); throw failure }
+                } catch (failure: Throwable) { original.recycle(); throw failure }
+            }
+        } catch (failure: Throwable) {
+            // withContext can be cancelled while dispatching an already decoded result back.
+            result?.let { it.original.recycle(); it.fitted.recycle() }
+            throw failure
+        }
+    }
 
     suspend fun import(uri: Uri, centerCrop: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
         val (bytes, mime) = read(uri)

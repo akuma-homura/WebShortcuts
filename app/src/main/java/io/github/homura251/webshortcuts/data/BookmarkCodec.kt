@@ -3,13 +3,15 @@ package io.github.homura251.webshortcuts.data
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import io.github.homura251.webshortcuts.icons.CropRect
 
 /** Pure serialization, kept separate from Android I/O for deterministic migration tests. */
 object BookmarkCodec {
-    const val SCHEMA_VERSION = 2
+    const val SCHEMA_VERSION = 3
     const val MAX_BOOKMARKS = 2000
     const val MAX_JSON_BYTES = 4 * 1024 * 1024
     private val iconPath = Regex("icons/(auto|custom)/[a-zA-Z0-9._-]+\\.(webp|png)")
+    private val originalPath = Regex("icons/original/[a-zA-Z0-9_-]{1,100}\\.png")
 
     fun encode(items: List<BookmarkItem>): String {
         require(items.size <= MAX_BOOKMARKS) { "收藏数量已达到上限（$MAX_BOOKMARKS）" }
@@ -24,6 +26,11 @@ object BookmarkCodec {
                 put("selectedIconSource", item.selectedIconSource.name)
                 put("autoImagePath", item.autoImagePath ?: JSONObject.NULL)
                 put("customImagePath", item.customImagePath ?: JSONObject.NULL)
+                put("customOriginalPath", item.customOriginalPath ?: JSONObject.NULL)
+                put("customCrop", item.customCrop?.let { crop -> JSONObject().apply {
+                    put("left", crop.left.toDouble()); put("top", crop.top.toDouble())
+                    put("right", crop.right.toDouble()); put("bottom", crop.bottom.toDouble())
+                } } ?: JSONObject.NULL)
                 put("sourceUrl", item.sourceUrl ?: JSONObject.NULL)
                 put("imageVersion", item.imageVersion)
                 put("lastFetchedAt", item.lastFetchedAt ?: JSONObject.NULL)
@@ -64,6 +71,12 @@ object BookmarkCodec {
                 selectedIconSource = mode,
                 autoImagePath = record.nullableString("autoImagePath")?.takeIf(::isSafeIconPath),
                 customImagePath = record.nullableString("customImagePath")?.takeIf(::isSafeIconPath),
+                customOriginalPath = record.nullableString("customOriginalPath")?.takeIf(::isSafeOriginalPath),
+                customCrop = if (!record.has("customCrop") || record.isNull("customCrop")) null
+                    else record.getJSONObject("customCrop").let { crop ->
+                        CropRect(crop.getDouble("left").toFloat(), crop.getDouble("top").toFloat(),
+                            crop.getDouble("right").toFloat(), crop.getDouble("bottom").toFloat())
+                    },
                 sourceUrl = record.nullableString("sourceUrl")?.let { runCatching { UrlNormalizer.normalize(it) }.getOrNull() },
                 imageVersion = record.optInt("imageVersion", 1).coerceAtLeast(1),
                 lastFetchedAt = if (record.isNull("lastFetchedAt")) null else record.optLong("lastFetchedAt").takeIf { it > 0 },
@@ -83,9 +96,11 @@ object BookmarkCodec {
         require(item.imageVersion >= 1) { "图标版本无效" }
         require(item.autoImagePath == null || isSafeIconPath(item.autoImagePath)) { "自动图标路径无效" }
         require(item.customImagePath == null || isSafeIconPath(item.customImagePath)) { "自定义图标路径无效" }
+        require(item.customOriginalPath == null || isSafeOriginalPath(item.customOriginalPath)) { "自定义原图路径无效" }
     }
 
     private fun isSafeIconPath(value: String) = ".." !in value && iconPath.matches(value)
+    private fun isSafeOriginalPath(value: String) = originalPath.matches(value)
     private fun JSONObject.nullableString(name: String): String? =
         if (!has(name) || isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
 

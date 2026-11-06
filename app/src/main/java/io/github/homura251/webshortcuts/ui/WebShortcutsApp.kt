@@ -27,12 +27,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
@@ -78,6 +80,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -112,9 +115,12 @@ import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.icons.IconPolicy
+import io.github.homura251.webshortcuts.icons.CropRect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,6 +146,8 @@ fun WebShortcutsApp(
     onRefetchIcon: () -> Unit,
     onSave: () -> Unit,
     onCenterCropChange: (Boolean) -> Unit = {},
+    onCropApply: (CropRect?) -> Unit = {},
+    onClearRefreshSummary: () -> Unit = {},
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -194,7 +202,9 @@ fun WebShortcutsApp(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+        PullToRefreshBox(isRefreshing = state.refreshing,
+            onRefresh = { if (!state.loading && state.error == null && autoCount > 0) onRefreshAll() },
+            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
@@ -274,8 +284,19 @@ fun WebShortcutsApp(
                     if (state.refreshing) {
                         item(key = "refresh_progress") {
                             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                Text(stringResource(R.string.refresh_status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                LinearProgressIndicator(progress = { if (state.refreshTotal > 0) state.refreshCompleted.toFloat() / state.refreshTotal else 0f }, modifier = Modifier.fillMaxWidth())
+                                Text(stringResource(R.string.refresh_progress_count, state.refreshCompleted, state.refreshTotal),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    state.refreshSummary?.let { summary ->
+                        item(key = "refresh_summary") {
+                            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(summary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                    IconButton(onClick = onClearRefreshSummary) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.dismiss_refresh_summary)) }
+                                }
                             }
                         }
                     }
@@ -296,7 +317,8 @@ fun WebShortcutsApp(
                         BookmarkCard(
                             bookmark = bookmark,
                             iconResolver = iconResolver,
-                            refreshing = state.refreshing,
+                            refreshing = bookmark.id in state.refreshingIds,
+                            refreshMessage = state.refreshMessages[bookmark.id],
                             onOpen = { onOpen(bookmark) },
                             onPin = { onPin(bookmark) },
                             onEdit = { onEdit(bookmark) },
@@ -322,6 +344,7 @@ fun WebShortcutsApp(
             onRefetchIcon = onRefetchIcon,
             onSave = onSave,
             onCenterCropChange = onCenterCropChange,
+            onCropApply = onCropApply,
         )
     }
     deleteTarget?.let { bookmark ->
@@ -416,6 +439,7 @@ private fun BookmarkCard(
     bookmark: BookmarkItem,
     iconResolver: IconResolver,
     refreshing: Boolean,
+    refreshMessage: String?,
     onOpen: () -> Unit,
     onPin: () -> Unit,
     onEdit: () -> Unit,
@@ -437,6 +461,17 @@ private fun BookmarkCard(
                 Text(bookmark.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(bookmark.url.removePrefix("https://").removePrefix("http://").trimEnd('/'), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(modeLabel(bookmark.selectedIconSource), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (refreshing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.fetching_icon), style = MaterialTheme.typography.labelSmall)
+                    }
+                } else if (refreshMessage != null) {
+                    Text(refreshMessage, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (bookmark.selectedIconSource == IconSourceMode.AUTO && bookmark.lastFetchedAt != null) {
+                    Text(stringResource(R.string.last_successful_fetch, formatIconTime(bookmark.lastFetchedAt)),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Box {
                 IconButton(onClick = { expanded = true }) {
@@ -537,9 +572,13 @@ private fun BookmarkEditor(
     onRefetchIcon: () -> Unit,
     onSave: () -> Unit,
     onCenterCropChange: (Boolean) -> Unit,
+    onCropApply: (CropRect?) -> Unit,
 ) {
     var askDiscard by rememberSaveable(state.id) { mutableStateOf(false) }
     var roundPreview by rememberSaveable(state.id) { mutableStateOf(false) }
+    var fullCanvasPreview by rememberSaveable(state.id) { mutableStateOf(false) }
+    var showSafeZone by rememberSaveable(state.id) { mutableStateOf(false) }
+    var showCrop by rememberSaveable(state.id) { mutableStateOf(false) }
     var urlWasFocused by remember(state.id) { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val processingCustomImage = state.loading && state.mode == IconSourceMode.CUSTOM
@@ -599,7 +638,9 @@ private fun BookmarkEditor(
                         modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
-                        IconPreview(state, roundPreview, onRoundChange = { roundPreview = it })
+                        IconPreview(state, roundPreview, fullCanvasPreview, showSafeZone,
+                            onRoundChange = { roundPreview = it }, onFullCanvasChange = { fullCanvasPreview = it },
+                            onSafeZoneChange = { showSafeZone = it })
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(stringResource(R.string.icon_mode), style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -625,7 +666,11 @@ private fun BookmarkEditor(
                                     )
                                 }
                             }
-                            ModeControls(state, onPickImage, onRefetchIcon, onCenterCropChange)
+                            ModeControls(state, onPickImage, onRefetchIcon, onCenterCropChange, onFreeCrop = { showCrop = true })
+                        }
+                        if (state.statusMessage != null && state.error == null) {
+                            Text(state.statusMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("icon_fetch_status"))
                         }
                         if (state.error != null) ErrorNotice(state.error)
                         OutlinedTextField(
@@ -682,29 +727,22 @@ private fun BookmarkEditor(
                 dismissButton = { TextButton(onClick = { askDiscard = false }) { Text(stringResource(R.string.keep_editing)) } },
             )
         }
+        if (showCrop && state.cropSource != null) {
+            FreeCropDialog(source = state.cropSource, initialCrop = state.cropRect, onDismiss = { showCrop = false },
+                onApply = { crop -> showCrop = false; onCropApply(crop) })
+        }
     }
 }
 
 @Composable
-private fun IconPreview(state: EditorUiState, round: Boolean, onRoundChange: (Boolean) -> Unit) {
+private fun IconPreview(state: EditorUiState, round: Boolean, fullCanvas: Boolean, showSafeZone: Boolean,
+                        onRoundChange: (Boolean) -> Unit, onFullCanvasChange: (Boolean) -> Unit,
+                        onSafeZoneChange: (Boolean) -> Unit) {
     Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(116.dp), contentAlignment = Alignment.Center) {
-                Surface(
-                    modifier = Modifier.size(96.dp),
-                    shape = if (round) CircleShape else RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                ) {
-                    if (state.preview != null) {
-                        Image(state.preview.asImageBitmap(), contentDescription = stringResource(R.string.icon_preview),
-                            contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().adaptiveIconViewport())
-                    } else {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Language, contentDescription = stringResource(R.string.icon_preview), modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
-                    }
-                }
-                if (state.loading) CircularProgressIndicator(modifier = Modifier.size(114.dp), strokeWidth = 3.dp)
+            Box(modifier = Modifier.size(176.dp), contentAlignment = Alignment.Center) {
+                IconArtworkPreview(state.preview, round, fullCanvas, showSafeZone, Modifier.size(156.dp))
+                if (state.loading) CircularProgressIndicator(modifier = Modifier.size(174.dp), strokeWidth = 3.dp)
             }
             Text(
                 state.title.ifBlank { stringResource(R.string.icon_preview) },
@@ -715,11 +753,17 @@ private fun IconPreview(state: EditorUiState, round: Boolean, onRoundChange: (Bo
                 style = MaterialTheme.typography.titleMedium,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                FilterChip(selected = !fullCanvas, onClick = { onFullCanvasChange(false) }, modifier = Modifier.testTag("preview_launcher"), label = { Text(stringResource(R.string.preview_launcher)) })
+                FilterChip(selected = fullCanvas, onClick = { onFullCanvasChange(true) }, modifier = Modifier.testTag("preview_full_canvas"), label = { Text(stringResource(R.string.preview_full_canvas)) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = !round, onClick = { onRoundChange(false) }, label = { Text(stringResource(R.string.preview_rounded)) })
                 FilterChip(selected = round, onClick = { onRoundChange(true) }, label = { Text(stringResource(R.string.preview_round)) })
             }
+            FilterChip(selected = showSafeZone, onClick = { onSafeZoneChange(!showSafeZone) },
+                modifier = Modifier.testTag("preview_safe_zone"), label = { Text(stringResource(R.string.show_safe_zone)) })
             Text(
-                stringResource(R.string.icon_preview_hint),
+                stringResource(if (fullCanvas && showSafeZone) R.string.full_canvas_safe_hint else if (showSafeZone) R.string.safe_zone_hint else R.string.icon_preview_hint),
                 modifier = Modifier.padding(top = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -735,6 +779,7 @@ private fun ModeControls(
     onPickImage: () -> Unit,
     onRefetchIcon: () -> Unit,
     onCenterCropChange: (Boolean) -> Unit,
+    onFreeCrop: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -757,6 +802,7 @@ private fun ModeControls(
                         Text(state.sourceLabel, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                     }
                 }
+                IconSourceDetails(state.sourceUrl, state.lastFetchedAt)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onRefetchIcon, enabled = !state.loading && !state.saving && state.url.isNotBlank()) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -782,12 +828,12 @@ private fun ModeControls(
                         Text(stringResource(R.string.custom_framing), style = MaterialTheme.typography.titleSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
-                                selected = !state.centerCrop,
+                                selected = state.cropRect == null,
                                 onClick = { onCenterCropChange(false) },
                                 enabled = !state.loading && !state.saving,
                                 modifier = Modifier.weight(1f).testTag("crop_fit"),
                                 label = { Text(stringResource(R.string.crop_fit), textAlign = TextAlign.Center) },
-                                leadingIcon = if (!state.centerCrop) {
+                                leadingIcon = if (state.cropRect == null) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
                                 } else null,
                             )
@@ -802,11 +848,37 @@ private fun ModeControls(
                                 } else null,
                             )
                         }
+                        FilledTonalButton(onClick = onFreeCrop, enabled = !state.loading && !state.saving,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("free_crop")) {
+                            Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.free_crop_entry))
+                        }
                         Text(stringResource(R.string.crop_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                } else if (state.hasCustomImage && !state.loading) {
+                    Text(stringResource(R.string.reimport_to_crop), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             IconSourceMode.GENERATED -> Unit
         }
+    }
+}
+
+private fun formatIconTime(timestamp: Long): String =
+    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestamp))
+
+@Composable
+private fun IconSourceDetails(sourceUrl: String?, lastFetchedAt: Long?) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.icon_source_url_label), style = MaterialTheme.typography.labelMedium)
+        SelectionContainer {
+            Text(sourceUrl ?: stringResource(R.string.icon_source_url_empty), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("icon_source_url"))
+        }
+        Text(if (lastFetchedAt == null) stringResource(R.string.icon_fetch_time_empty)
+            else stringResource(R.string.last_successful_fetch, formatIconTime(lastFetchedAt)),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("icon_sync_time"))
     }
 }

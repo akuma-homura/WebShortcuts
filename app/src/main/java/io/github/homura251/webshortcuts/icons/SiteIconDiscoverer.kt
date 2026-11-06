@@ -66,7 +66,7 @@ class SiteIconDiscoverer(
                             }
                         }
                     }
-                    IconCandidates.rootFavicon(pageUrl)?.let { candidates.add(IconCandidate(it, CandidateKind.FAVICON)) }
+                    candidates.addAll(IconCandidates.rootFallbacks(pageUrl))
                     for (candidate in IconCandidates.sorted(candidates)) {
                         coroutineContext.ensureActive()
                         val resource = request(candidate.url, ResourceKind.IMAGE) ?: continue

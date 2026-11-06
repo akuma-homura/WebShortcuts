@@ -25,14 +25,7 @@ class IconProcessor {
 
     fun decodeWithMetadata(bytes: ByteArray, mimeType: String? = null, centerCrop: Boolean = false,
                            maskable: Boolean = false, checkpoint: () -> Unit = {}): DecodedIcon {
-        checkpoint()
-        require(bytes.isNotEmpty() && bytes.size <= IconPolicy.MAX_IMAGE_BYTES) { "Image must be smaller than 5 MB." }
-        val declared = mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)
-        require(declared == null || declared in IconPolicy.supportedMimeTypes) { "Unsupported image format." }
-        val actual = sniffMimeType(bytes) ?: throw IllegalArgumentException("Unsupported or invalid image.")
-        require(declared == null || declared == actual || actual == "image/x-icon" && declared == "image/vnd.microsoft.icon") {
-            "Image does not match its declared format."
-        }
+        val actual = validatedMime(bytes, mimeType, checkpoint)
         val decoded = when (actual) {
             "image/x-icon" -> IcoDecoder.decode(bytes).let { DecodedIcon(it, it.width, it.height, false) }
             "image/svg+xml" -> decodeSvg(bytes, checkpoint).let { DecodedIcon(it, it.width, it.height, true) }
@@ -47,6 +40,54 @@ class IconProcessor {
             val normalized = normalize(decoded.bitmap, centerCrop, maskable)
             try { checkpoint(); decoded.copy(bitmap = normalized) } catch (failure: Throwable) { normalized.recycle(); throw failure }
         } finally { decoded.bitmap.recycle() }
+    }
+
+    /** An oriented, bounded original without any launcher padding, owned by the caller. */
+    fun decodeEditable(bytes: ByteArray, mimeType: String? = null, checkpoint: () -> Unit = {}): Bitmap {
+        val actual = validatedMime(bytes, mimeType, checkpoint)
+        var decoded = when (actual) {
+            "image/x-icon" -> IcoDecoder.decode(bytes)
+            "image/svg+xml" -> decodeSvg(bytes, checkpoint, MAX_EDITABLE_SIZE)
+            else -> decodeRaster(bytes, actual, checkpoint, MAX_EDITABLE_SIZE)
+        }
+        try {
+            checkpoint()
+            val longest = maxOf(decoded.width, decoded.height)
+            if (longest > MAX_EDITABLE_SIZE) {
+                val scale = MAX_EDITABLE_SIZE.toFloat() / longest
+                val scaled = Bitmap.createScaledBitmap(decoded, (decoded.width * scale).roundToInt().coerceAtLeast(1),
+                    (decoded.height * scale).roundToInt().coerceAtLeast(1), true)
+                if (scaled !== decoded) decoded.recycle()
+                decoded = scaled
+            }
+            checkpoint()
+            return decoded
+        } catch (failure: Throwable) { decoded.recycle(); throw failure }
+    }
+
+    /** Crop from the retained original, not from a previously normalized icon. */
+    fun crop(source: Bitmap, crop: CropRect?): Bitmap {
+        require(!source.isRecycled)
+        IconPolicy.validateDimensions(source.width, source.height)
+        if (crop == null) return normalize(source)
+        val left = kotlin.math.floor(crop.left * source.width).toInt().coerceIn(0, source.width - 1)
+        val top = kotlin.math.floor(crop.top * source.height).toInt().coerceIn(0, source.height - 1)
+        val right = kotlin.math.ceil(crop.right * source.width).toInt().coerceIn(left + 1, source.width)
+        val bottom = kotlin.math.ceil(crop.bottom * source.height).toInt().coerceIn(top + 1, source.height)
+        val selected = Bitmap.createBitmap(source, left, top, right - left, bottom - top)
+        return try { normalize(selected) } finally { if (selected !== source) selected.recycle() }
+    }
+
+    private fun validatedMime(bytes: ByteArray, mimeType: String?, checkpoint: () -> Unit): String {
+        checkpoint()
+        require(bytes.isNotEmpty() && bytes.size <= IconPolicy.MAX_IMAGE_BYTES) { "Image must be smaller than 5 MB." }
+        val declared = mimeType?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)
+        require(declared == null || declared in IconPolicy.supportedMimeTypes) { "Unsupported image format." }
+        val actual = sniffMimeType(bytes) ?: throw IllegalArgumentException("Unsupported or invalid image.")
+        require(declared == null || declared == actual || actual == "image/x-icon" && declared == "image/vnd.microsoft.icon") {
+            "Image does not match its declared format."
+        }
+        return actual
     }
 
     fun normalize(source: Bitmap, centerCrop: Boolean = false, maskable: Boolean = false): Bitmap {
@@ -143,12 +184,12 @@ class IconProcessor {
         return 2f * radius
     }
 
-    private fun decodeRaster(bytes: ByteArray, mime: String, checkpoint: () -> Unit): Bitmap {
+    private fun decodeRaster(bytes: ByteArray, mime: String, checkpoint: () -> Unit, targetSize: Int = IconPolicy.OUTPUT_SIZE): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         IconPolicy.validateDimensions(bounds.outWidth, bounds.outHeight)
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= IconPolicy.OUTPUT_SIZE) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= targetSize) sample *= 2
         val options = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -171,12 +212,13 @@ class IconProcessor {
             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
             else -> return decoded
         }
-        val oriented = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+        val oriented = try { Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true) }
+            catch (failure: Throwable) { decoded.recycle(); throw failure }
         if (oriented !== decoded) decoded.recycle()
         return oriented
     }
 
-    private fun decodeSvg(bytes: ByteArray, checkpoint: () -> Unit): Bitmap {
+    private fun decodeSvg(bytes: ByteArray, checkpoint: () -> Unit, targetSize: Int = IconPolicy.OUTPUT_SIZE): Bitmap {
         val text = bytes.toString(Charsets.UTF_8)
         SvgSafety.check(text, checkpoint)
         checkpoint()
@@ -187,7 +229,7 @@ class IconProcessor {
         val height = if (svg.documentHeight > 0) svg.documentHeight else viewBox?.height() ?: 512f
         require(width.isFinite() && height.isFinite() && width > 0 && height > 0)
         IconPolicy.validateDimensions(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1))
-        val ratio = IconPolicy.OUTPUT_SIZE / maxOf(width, height)
+        val ratio = targetSize / maxOf(width, height)
         val targetWidth = (width * ratio).roundToInt().coerceAtLeast(1)
         val targetHeight = (height * ratio).roundToInt().coerceAtLeast(1)
         val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
@@ -205,6 +247,9 @@ class IconProcessor {
     }
 
     companion object {
+        const val MAX_EDITABLE_SIZE = 2048
+        const val MAX_EDITABLE_BYTES = 20 * 1024 * 1024
+
         internal fun sniffMimeType(bytes: ByteArray): String? {
             if (bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes.copyOfRange(1, 8).contentEquals(
                     byteArrayOf(0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))) return "image/png"

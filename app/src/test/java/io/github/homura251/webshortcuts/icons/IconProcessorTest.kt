@@ -13,6 +13,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import androidx.exifinterface.media.ExifInterface
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -173,6 +175,70 @@ class IconProcessorTest {
         val bitmap = processor.decode(svg.toByteArray(), "image/svg+xml")
         assertEquals(Color.RED, bitmap.getPixel(256, 256))
         assertEquals(Color.WHITE, bitmap.getPixel(20, 20))
+    }
+
+    @Test fun freeCropSelectsOffCenterPixelsWithoutMutatingTheRetainedOriginal() {
+        val source = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+        Canvas(source).apply {
+            drawColor(Color.RED)
+            drawRect(100f, 0f, 200f, 100f, Paint().apply { color = Color.BLUE })
+        }
+        val right = processor.crop(source, CropRect(0.5f, 0f, 1f, 1f))
+        val left = processor.crop(source, CropRect(0f, 0f, 0.5f, 1f))
+        try {
+            assertEquals(Color.BLUE, right.getPixel(256, 256))
+            assertEquals(Color.RED, left.getPixel(256, 256))
+            assertFalse(source.isRecycled)
+            assertEquals(200, source.width)
+            assertEquals(Color.RED, source.getPixel(20, 50))
+            assertEquals(Color.BLUE, source.getPixel(180, 50))
+        } finally { right.recycle(); left.recycle(); source.recycle() }
+    }
+
+    @Test fun editableDecodePreservesTransparencyAndOriginalGeometryInsteadOfLauncherPadding() {
+        val source = rectangleLogo(120, 60)
+        val bytes = ByteArrayOutputStream().also { source.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val editable = processor.decodeEditable(bytes, "image/png")
+        try {
+            assertEquals(122, editable.width)
+            assertEquals(62, editable.height)
+            assertEquals(Color.TRANSPARENT, editable.getPixel(0, 0))
+            assertEquals(Color.RED, editable.getPixel(60, 30))
+        } finally { editable.recycle(); source.recycle() }
+    }
+
+    @Test fun editableDecodeBoundsLargeSourcesWithoutCollapsingToA512PixelIcon() {
+        val source = Bitmap.createBitmap(3800, 1900, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        val bytes = ByteArrayOutputStream().also { source.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        source.recycle()
+        val editable = processor.decodeEditable(bytes, "image/png")
+        try {
+            assertEquals(2048, editable.width)
+            assertEquals(1024, editable.height)
+        } finally { editable.recycle() }
+    }
+
+    @Test fun editableJpegAppliesExifBeforeTheUserChoosesCropCoordinates() {
+        val source = Bitmap.createBitmap(120, 60, Bitmap.Config.ARGB_8888)
+        Canvas(source).apply {
+            drawColor(Color.RED)
+            drawRect(60f, 0f, 120f, 60f, Paint().apply { color = Color.BLUE })
+        }
+        val file = File.createTempFile("editable-orientation", ".jpg")
+        try {
+            file.outputStream().use { source.compress(Bitmap.CompressFormat.JPEG, 100, it) }
+            ExifInterface(file).apply {
+                setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+                saveAttributes()
+            }
+            val editable = processor.decodeEditable(file.readBytes(), "image/jpeg")
+            try {
+                assertEquals(60, editable.width)
+                assertEquals(120, editable.height)
+                assertTrue(Color.red(editable.getPixel(30, 20)) > 200)
+                assertTrue(Color.blue(editable.getPixel(30, 100)) > 200)
+            } finally { editable.recycle() }
+        } finally { file.delete(); source.recycle() }
     }
 
     private fun rectangleLogo(width: Int, height: Int): Bitmap =

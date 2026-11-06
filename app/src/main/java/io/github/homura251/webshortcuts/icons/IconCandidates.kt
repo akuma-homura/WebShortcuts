@@ -15,6 +15,7 @@ internal data class IconCandidate(
     val size: Int = 0,
     val mimeType: String? = null,
     val maskable: Boolean = false,
+    val rootFallback: Boolean = false,
 ) {
     // A hint for the bounded request budget, never proof of the downloaded image's quality.
     val resolutionRank: Int
@@ -80,10 +81,12 @@ internal object IconCandidates {
             .thenByDescending { it.size.coerceAtMost(IconPolicy.MAX_DIMENSION) }
             .thenBy { if (it.mimeType in setOf("image/png", "image/webp")) 0 else 1 })
             .distinctBy { it.url }
-        val fallback = ranked.firstOrNull { it.kind == CandidateKind.FAVICON }
-        // Keep the request budget bounded without allowing many broken declarations to evict /favicon.ico.
-        return if (fallback == null) ranked.take(12)
-        else ranked.filter { it.kind != CandidateKind.FAVICON }.take(11) + fallback
+        // Reserve all conventional root paths, even if one was also explicitly declared.
+        // Broken declarations must not consume the entire twelve-resource request budget.
+        val fallbackUrls = candidates.filter { it.rootFallback || it.kind == CandidateKind.FAVICON }
+            .map { it.url }.toSet()
+        val fallbacks = ranked.filter { it.url in fallbackUrls }.take(12)
+        return ranked.filter { it.url !in fallbackUrls }.take(12 - fallbacks.size) + fallbacks
     }
 
     fun resolve(base: String, value: String): String? {
@@ -95,8 +98,15 @@ internal object IconCandidates {
         return resolved.newBuilder().fragment(null).build().toString()
     }
 
-    fun rootFavicon(pageUrl: String): String? = pageUrl.toHttpUrlOrNull()?.newBuilder()
-        ?.encodedPath("/favicon.ico")?.query(null)?.fragment(null)?.build()?.toString()
+    fun rootFallbacks(pageUrl: String): List<IconCandidate> = listOf(
+        "/apple-touch-icon.png" to CandidateKind.APPLE,
+        "/apple-touch-icon-precomposed.png" to CandidateKind.APPLE,
+        "/favicon.ico" to CandidateKind.FAVICON,
+    ).mapNotNull { (path, kind) ->
+        resolve(pageUrl, path)?.let { IconCandidate(it, kind, rootFallback = true) }
+    }
+
+    fun rootFavicon(pageUrl: String): String? = resolve(pageUrl, "/favicon.ico")
 
     internal fun size(sizes: String): Int = sizes.lowercase(Locale.ROOT).split(Regex("\\s+"))
         .mapNotNull { value ->

@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts.data
 
 import java.util.UUID
+import io.github.homura251.webshortcuts.icons.CropRect
 
 /** Explicit icon selection. AUTO retains its mode even when rendering falls back to a monogram. */
 enum class IconSourceMode { AUTO, CUSTOM, GENERATED }
@@ -19,4 +20,6 @@ data class BookmarkItem(
     val iconDescription: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val customOriginalPath: String? = null,
+    val customCrop: CropRect? = null,
 )

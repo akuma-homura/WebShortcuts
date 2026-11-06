@@ -10,7 +10,7 @@ import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.UrlNormalizer
 import io.github.homura251.webshortcuts.icons.IconFetchResult
-import io.github.homura251.webshortcuts.icons.ImportedIcon
+import io.github.homura251.webshortcuts.icons.CropRect
 import io.github.homura251.webshortcuts.ui.EditorUiState
 import io.github.homura251.webshortcuts.ui.HomeUiState
 import kotlinx.coroutines.CancellationException
@@ -40,13 +40,17 @@ class MainViewModel(application: Application, private val savedState: SavedState
     private var original: BookmarkItem? = null
     private var autoImage: IconFetchResult? = null
     private var autoImageUrl: String? = null
+    private var autoImageFetchedAt: Long? = null
     private var customImage: Bitmap? = null
-    private var importedVariants: ImportedIcon? = null
+    private var customOriginal: Bitmap? = null
+    private var customOriginalDirty = false
     private var customDraftName: String? = null
+    private var originalDraftName: String? = null
     private var lastAttemptedUrl: String? = null
     private var fetchJob: Job? = null
     private var previewJob: Job? = null
     private var importJob: Job? = null
+    private var sourceJob: Job? = null
     private var editorEpoch = 0
     private var fetchEpoch = 0
     private var importEpoch = 0
@@ -67,7 +71,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
                     restoreEditor()
                     container.mutationMutex.withLock { cleanUnusedIcons() }
                 }
-                drafts.prune(customDraftName)
+                drafts.prune(listOfNotNull(customDraftName, originalDraftName).toSet())
                 mutableState.update { it.copy(loading = false) }
             } catch (error: Exception) {
                 rethrowCancellation(error)
@@ -96,22 +100,34 @@ class MainViewModel(application: Application, private val savedState: SavedState
         beginEditor(item, EditorUiState(
             id = item.id, isNew = false, title = item.title, url = item.url,
             mode = item.selectedIconSource, sourceLabel = item.iconDescription,
-            hasCustomImage = item.customImagePath != null,
+            hasCustomImage = item.customImagePath != null, cropRect = item.customCrop,
         ))
     }
 
-    private fun beginEditor(item: BookmarkItem?, editor: EditorUiState) {
+    private fun beginEditor(item: BookmarkItem?, editor: EditorUiState, loadCropSource: Boolean = true) {
         cancelEditorJobs()
         original = item
         autoImage = null
         autoImageUrl = null
+        autoImageFetchedAt = null
         customImage = null
-        importedVariants = null
+        customOriginal = null
+        customOriginalDirty = false
         customDraftName = null
+        originalDraftName = null
         lastAttemptedUrl = null
         mutableState.update { it.copy(editor = editor) }
         persistEditor()
         updatePreview()
+        if (loadCropSource && item?.customOriginalPath != null) {
+            val epoch = editorEpoch
+            sourceJob = viewModelScope.launch {
+                val source = container.iconStore.readOriginal(item.customOriginalPath)
+                if (epoch != editorEpoch) return@launch
+                customOriginal = source
+                changeEditor { it.copy(cropSource = source, canCrop = source != null) }
+            }
+        }
     }
 
     fun dismissEditor() {
@@ -121,15 +137,18 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     private fun closeEditor() {
         val discarded = customDraftName
+        val discardedOriginal = originalDraftName
         cancelEditorJobs()
         original = null
         autoImage = null
         customImage = null
-        importedVariants = null
+        customOriginal = null
+        customOriginalDirty = false
         customDraftName = null
+        originalDraftName = null
         mutableState.update { it.copy(editor = null) }
         DRAFT_KEYS.forEach { savedState.remove<Any?>(it) }
-        viewModelScope.launch { drafts.delete(discarded) }
+        viewModelScope.launch { drafts.delete(discarded); drafts.delete(discardedOriginal) }
     }
 
     fun setTitle(value: String) {
@@ -143,7 +162,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
         fetchJob?.cancel()
         fetchEpoch++
         lastAttemptedUrl = null
-        changeEditor { it.copy(url = value, urlError = null, loading = importJob?.isActive == true, error = null, dirty = true) }
+        changeEditor { it.copy(url = value, urlError = null, loading = importJob?.isActive == true, error = null, statusMessage = null, dirty = true) }
         updatePreview()
     }
 
@@ -175,12 +194,13 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val editor = mutableState.value.editor ?: return
         if (editor.mode != IconSourceMode.AUTO || editor.saving || importJob?.isActive == true) return
         val target = normalizeOrShowError(editor.url) ?: return
+        if (fetchJob?.isActive == true && lastAttemptedUrl == target) return
         if (!force && lastAttemptedUrl == target) return
         fetchJob?.cancel()
         lastAttemptedUrl = target
         val epoch = editorEpoch
         val requestEpoch = ++fetchEpoch
-        changeEditor { it.copy(loading = true, error = null, urlError = null) }
+        changeEditor { it.copy(loading = true, error = null, statusMessage = null, urlError = null) }
         fetchJob = viewModelScope.launch {
             try {
                 val result = container.siteIconDiscoverer.fetch(target)
@@ -188,7 +208,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
                 if (result != null) {
                     autoImage = result
                     autoImageUrl = target
-                    changeEditor { it.copy(loading = false, sourceLabel = result.description, error = null, dirty = true) }
+                    autoImageFetchedAt = System.currentTimeMillis()
+                    changeEditor { it.copy(loading = false, sourceLabel = result.description, error = null,
+                        statusMessage = "已获取新图标，保存后应用并请求桌面同步", dirty = true) }
                 } else {
                     val cached = hasAutoImageForCurrentUrl()
                     changeEditor { it.copy(loading = false, error = if (cached) "暂未获取到新图标，已保留缓存图标" else "未能获取高清图标，已使用默认字母图标") }
@@ -210,51 +232,81 @@ class MainViewModel(application: Application, private val savedState: SavedState
         fetchJob?.cancel()
         fetchEpoch++
         importJob?.cancel()
+        sourceJob?.cancel()
         val epoch = editorEpoch
         val requestEpoch = ++importEpoch
         changeEditor { it.copy(loading = true, error = null) }
         importJob = viewModelScope.launch {
             try {
-                val variants = container.iconImporter.importVariants(uri)
-                val bitmap = variants.fitted
+                val imported = container.iconImporter.importEditable(uri)
+                val bitmap = imported.fitted
                 if (epoch != editorEpoch || requestEpoch != importEpoch) return@launch
                 val name = drafts.write(editor.id, bitmap)
-                if (epoch != editorEpoch || requestEpoch != importEpoch) { drafts.delete(name); return@launch }
+                val sourceName = try { drafts.write(editor.id, imported.original) }
+                    catch (error: Exception) { drafts.delete(name); throw error }
+                if (epoch != editorEpoch || requestEpoch != importEpoch) {
+                    drafts.delete(name); drafts.delete(sourceName); return@launch
+                }
                 val previousName = customDraftName
+                val previousOriginal = originalDraftName
                 customImage = bitmap
-                importedVariants = variants
+                customOriginal = imported.original
+                customOriginalDirty = true
                 customDraftName = name
-                changeEditor { it.copy(mode = IconSourceMode.CUSTOM, loading = false, error = null, hasCustomImage = true, dirty = true, canCrop = true, centerCrop = false) }
+                originalDraftName = sourceName
+                importJob = null // The image is ready before the UI enables Save or another edit.
+                changeEditor { it.copy(mode = IconSourceMode.CUSTOM, loading = false, error = null, statusMessage = null,
+                    hasCustomImage = true, dirty = true, canCrop = true, centerCrop = false,
+                    cropSource = imported.original, cropRect = null) }
                 updatePreview()
                 drafts.delete(previousName)
+                drafts.delete(previousOriginal)
             } catch (error: Exception) {
                 rethrowCancellation(error)
-                if (epoch == editorEpoch && requestEpoch == importEpoch) changeEditor { it.copy(loading = false, error = "无法导入这张图片。请选择不超过 5 MB、边长不超过 4096 像素的 PNG、JPEG 或 WebP 图片。") }
+                if (epoch == editorEpoch && requestEpoch == importEpoch) {
+                    importJob = null
+                    changeEditor { it.copy(loading = false, error = "无法导入这张图片。请选择不超过 5 MB、边长不超过 4096 像素的 PNG、JPEG 或 WebP 图片。") }
+                }
             }
         }
     }
 
     fun setCenterCrop(crop: Boolean) {
+        val source = customOriginal ?: return
+        val side = minOf(source.width, source.height).toFloat()
+        val rect = if (crop) CropRect((source.width - side) / (2f * source.width),
+            (source.height - side) / (2f * source.height),
+            (source.width + side) / (2f * source.width), (source.height + side) / (2f * source.height)) else null
+        applyCustomCrop(rect, centerCrop = crop)
+    }
+
+    fun applyCustomCrop(crop: CropRect?) = applyCustomCrop(crop, centerCrop = false)
+
+    private fun applyCustomCrop(crop: CropRect?, centerCrop: Boolean) {
         val editor = mutableState.value.editor ?: return
-        val variants = importedVariants ?: return
-        if (editor.saving || importJob?.isActive == true || editor.centerCrop == crop) return
-        val bitmap = if (crop) variants.cropped else variants.fitted
+        val source = customOriginal ?: return
+        if (editor.saving || importJob?.isActive == true || editor.mode != IconSourceMode.CUSTOM) return
         val epoch = editorEpoch
         val requestEpoch = ++importEpoch
-        changeEditor { it.copy(loading = true) }
+        changeEditor { it.copy(loading = true, error = null, statusMessage = null) }
         importJob = viewModelScope.launch {
             try {
+                val bitmap = withContext(Dispatchers.Default) { container.iconProcessor.crop(source, crop) }
                 val name = drafts.write(editor.id, bitmap)
                 if (epoch != editorEpoch || requestEpoch != importEpoch) { drafts.delete(name); return@launch }
                 val previousName = customDraftName
                 customImage = bitmap
                 customDraftName = name
-                changeEditor { it.copy(centerCrop = crop, loading = false, dirty = true) }
+                importJob = null
+                changeEditor { it.copy(centerCrop = centerCrop, cropRect = crop, loading = false, dirty = true) }
                 updatePreview()
                 drafts.delete(previousName)
             } catch (error: Exception) {
                 rethrowCancellation(error)
-                if (epoch == editorEpoch && requestEpoch == importEpoch) changeEditor { it.copy(loading = false, error = "无法保存裁切预览，请重试") }
+                if (epoch == editorEpoch && requestEpoch == importEpoch) {
+                    importJob = null
+                    changeEditor { it.copy(loading = false, error = "无法保存裁切预览，请重试") }
+                }
             }
         }
     }
@@ -263,6 +315,10 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val editor = mutableState.value.editor ?: return
         if (editor.saving) return
         if (importJob?.isActive == true) { notify("请等待图片处理完成后保存"); return }
+        if (customOriginalDirty && customOriginal == null) {
+            changeEditor { it.copy(error = "原图草稿已过期，请重新导入图片后保存，或放弃本次编辑") }
+            return
+        }
         val url = normalizeOrShowError(editor.url) ?: return
         val title = editor.title.trim()
         if (title.isEmpty() || title.length > 80 || title.any { it.isISOControl() }) {
@@ -280,6 +336,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
         changeEditor { it.copy(saving = true, loading = false, error = null) }
         val pendingAuto = autoImage.takeIf { autoImageUrl == url }
         val pendingCustom = customImage
+        val pendingOriginal = customOriginal.takeIf { customOriginalDirty }
         viewModelScope.launch {
             var saved = false
             var wasPinned = false
@@ -294,15 +351,19 @@ class MainViewModel(application: Application, private val savedState: SavedState
                     val sameUrl = previous?.url == url
                     var autoPath = previous?.autoImagePath.takeIf { sameUrl }
                     var customPath = previous?.customImagePath
+                    var customOriginalPath = previous?.customOriginalPath
                     if (pendingAuto != null) autoPath = container.iconStore.save(editor.id, version, IconSourceMode.AUTO, pendingAuto.bitmap)
                     if (pendingCustom != null) customPath = container.iconStore.save(editor.id, version, IconSourceMode.CUSTOM, pendingCustom)
+                    if (pendingOriginal != null) customOriginalPath = container.iconStore.saveOriginal(editor.id, version, pendingOriginal)
                     val now = System.currentTimeMillis()
                     val item = BookmarkItem(
                         id = editor.id, title = title, url = url, selectedIconSource = editor.mode,
                         autoImagePath = autoPath, customImagePath = customPath,
+                        customOriginalPath = customOriginalPath,
+                        customCrop = if (pendingCustom != null) editor.cropRect else previous?.customCrop,
                         sourceUrl = pendingAuto?.sourceUrl ?: previous?.sourceUrl.takeIf { sameUrl },
                         imageVersion = version,
-                        lastFetchedAt = if (pendingAuto != null) now else previous?.lastFetchedAt.takeIf { sameUrl },
+                        lastFetchedAt = if (pendingAuto != null) autoImageFetchedAt ?: now else previous?.lastFetchedAt.takeIf { sameUrl },
                         iconDescription = pendingAuto?.description ?: previous?.iconDescription.takeIf { sameUrl },
                         createdAt = previous?.createdAt ?: now, updatedAt = now,
                     )
@@ -374,41 +435,64 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun refresh(item: BookmarkItem) {
         if (item.selectedIconSource != IconSourceMode.AUTO) { notify("只有自动模式的图标会被刷新"); return }
+        if (item.id in mutableState.value.refreshingIds) return
         viewModelScope.launch {
             val result = refreshOne(item)
-            notify(when (result) {
-                RefreshResult.UPDATED -> "已更新网站图标；已有桌面快捷方式会尝试同步"
-                RefreshResult.SKIPPED -> "收藏已修改或正在刷新，本次未覆盖"
-                RefreshResult.FAILED -> "未获取到新图标，已保留原图"
-            })
+            // Another refresh already owns the row; do not replace its live feedback.
+            if (item.id !in mutableState.value.refreshingIds) notify(result.message)
         }
     }
+
+    fun clearRefreshSummary() { mutableState.update { it.copy(refreshSummary = null) } }
 
     fun refreshAll() {
         if (mutableState.value.refreshing) return
         val candidates = repository.bookmarks.value.filter { it.selectedIconSource == IconSourceMode.AUTO }
         if (candidates.isEmpty()) { notify("暂无需要刷新的自动图标"); return }
-        mutableState.update { it.copy(refreshing = true) }
+        mutableState.update { it.copy(refreshing = true, refreshCompleted = 0, refreshTotal = candidates.size, refreshSummary = null) }
         viewModelScope.launch {
             var updated = 0
+            var pendingSync = 0
             var failed = 0
             var skipped = 0
+            var completed = 0
             try {
-                for (item in candidates) when (refreshOne(item)) {
-                    RefreshResult.UPDATED -> updated++
-                    RefreshResult.FAILED -> failed++
-                    RefreshResult.SKIPPED -> skipped++
+                for (item in candidates) {
+                    when (refreshOne(item)) {
+                        RefreshResult.UPDATED, RefreshResult.SYNC_REQUESTED -> updated++
+                        RefreshResult.SYNC_PENDING -> { updated++; pendingSync++ }
+                        RefreshResult.FAILED -> failed++
+                        RefreshResult.SKIPPED -> skipped++
+                    }
+                    completed++
+                    mutableState.update { it.copy(refreshCompleted = completed) }
                 }
-                notify("已更新 $updated 个图标，$failed 个保留原图" + if (skipped > 0) "，$skipped 个已跳过" else "")
-            } finally { mutableState.update { it.copy(refreshing = false) } }
+            } finally {
+                val summary = (if (completed < candidates.size) "刷新已停止（$completed/${candidates.size}）：" else "刷新完成：") +
+                    "已更新 $updated 个图标，$failed 个保留原图" +
+                    (if (skipped > 0) "，$skipped 个已跳过" else "") +
+                    (if (pendingSync > 0) "；$pendingSync 个桌面同步待重试" else "")
+                mutableState.update { it.copy(refreshing = false, refreshSummary = summary) }
+                notify(summary)
+            }
         }
     }
 
     private suspend fun refreshOne(snapshot: BookmarkItem): RefreshResult {
-        if (!refreshingIds.add(snapshot.id)) return RefreshResult.SKIPPED
+        synchronized(refreshingIds) {
+            if (!refreshingIds.add(snapshot.id)) return RefreshResult.SKIPPED
+            mutableState.update { it.copy(
+                refreshingIds = refreshingIds.toSet(),
+                refreshMessages = it.refreshMessages + (snapshot.id to "正在获取网站图标…"),
+            ) }
+        }
+        var fetched: IconFetchResult? = null
+        var outcome = RefreshResult.FAILED
+        var cancelled = false
         try {
-            val result = container.siteIconDiscoverer.fetch(snapshot.url) ?: return RefreshResult.FAILED
-            return container.mutationMutex.withLock {
+            val result = container.siteIconDiscoverer.fetch(snapshot.url) ?: return outcome
+            fetched = result
+            outcome = container.mutationMutex.withLock {
                 val latest = repository.find(snapshot.id) ?: return@withLock RefreshResult.SKIPPED
                 // An editor may have saved a custom icon, different URL, or newer auto image during IO.
                 if (latest.selectedIconSource != IconSourceMode.AUTO || latest.url != snapshot.url || latest.imageVersion != snapshot.imageVersion) return@withLock RefreshResult.SKIPPED
@@ -417,14 +501,34 @@ class MainViewModel(application: Application, private val savedState: SavedState
                 val now = System.currentTimeMillis()
                 val updated = latest.copy(autoImagePath = path, sourceUrl = result.sourceUrl, iconDescription = result.description, imageVersion = version, lastFetchedAt = now, updatedAt = now)
                 repository.save(updated)
-                try { container.shortcutPublisher.update(updated) } catch (error: Exception) { rethrowCancellation(error) }
+                // A saved image is already a successful refresh, even if its launcher update
+                // is rate-limited or rejected. Do not report it as a failed download.
+                outcome = RefreshResult.UPDATED
+                val sync = try {
+                    if (!container.shortcutPublisher.isPinned(updated.id)) RefreshResult.UPDATED
+                    else if (container.shortcutPublisher.update(updated)) RefreshResult.SYNC_REQUESTED
+                    else RefreshResult.SYNC_PENDING
+                } catch (error: Exception) { rethrowCancellation(error); RefreshResult.SYNC_PENDING }
+                outcome = sync
                 cleanUnusedIcons()
-                RefreshResult.UPDATED
+                sync
             }
+            return outcome
         } catch (error: Exception) {
+            cancelled = error is CancellationException
             rethrowCancellation(error)
-            return RefreshResult.FAILED
-        } finally { refreshingIds.remove(snapshot.id) }
+            return outcome
+        } finally {
+            fetched?.bitmap?.recycle()
+            synchronized(refreshingIds) {
+                refreshingIds.remove(snapshot.id)
+                mutableState.update { it.copy(
+                    refreshingIds = refreshingIds.toSet(),
+                    refreshMessages = it.refreshMessages + (snapshot.id to
+                        if (cancelled && outcome == RefreshResult.FAILED) "刷新已停止，已保留原图" else outcome.message),
+                ) }
+            }
+        }
     }
 
     private fun updatePreview() {
@@ -441,7 +545,11 @@ class MainViewModel(application: Application, private val savedState: SavedState
             IconSourceMode.GENERATED -> "字母生成 · 根据域名分配配色"
             IconSourceMode.AUTO -> autoImage?.description.takeIf { autoImageUrl == normalizedUrl } ?: origin?.iconDescription.takeIf { oldAutoValid } ?: "自动发现 · Manifest / Touch Icon / Favicon"
         }
-        mutableState.update { it.copy(editor = it.editor?.copy(sourceLabel = label)) }
+        val sourceUrl = if (editor.mode == IconSourceMode.AUTO)
+            autoImage?.sourceUrl.takeIf { autoImageUrl == normalizedUrl } ?: origin?.sourceUrl.takeIf { oldAutoValid } else null
+        val fetchedAt = if (editor.mode == IconSourceMode.AUTO)
+            autoImageFetchedAt.takeIf { autoImageUrl == normalizedUrl } ?: origin?.lastFetchedAt.takeIf { oldAutoValid } else null
+        mutableState.update { it.copy(editor = it.editor?.copy(sourceLabel = label, sourceUrl = sourceUrl, lastFetchedAt = fetchedAt)) }
         previewJob = viewModelScope.launch {
             val bitmap = try {
                 withContext(Dispatchers.Default) {
@@ -487,6 +595,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         savedState["draft.mode"] = editor.mode.name
         savedState["draft.dirty"] = editor.dirty
         savedState["draft.custom"] = customDraftName
+        savedState["draft.original"] = originalDraftName
+        savedState["draft.crop"] = editor.cropRect?.let { floatArrayOf(it.left, it.top, it.right, it.bottom) }
     }
 
     private suspend fun restoreEditor() {
@@ -499,10 +609,33 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val mode = runCatching { IconSourceMode.valueOf(savedState.get<String>("draft.mode") ?: "AUTO") }.getOrDefault(IconSourceMode.AUTO)
         val dirty = savedState.get<Boolean>("draft.dirty") ?: false
         val customName = savedState.get<String>("draft.custom")
-        beginEditor(previous, EditorUiState(id = id, isNew = isNew, title = title, url = url, mode = mode, dirty = dirty, hasCustomImage = previous?.customImagePath != null))
+        val sourceName = savedState.get<String>("draft.original")
+        val crop = if (savedState.contains("draft.crop")) savedState.get<FloatArray>("draft.crop")?.let { values ->
+            runCatching { require(values.size == 4); CropRect(values[0], values[1], values[2], values[3]) }.getOrNull()
+        } else previous?.customCrop
+        beginEditor(previous, EditorUiState(id = id, isNew = isNew, title = title, url = url, mode = mode, dirty = dirty,
+            hasCustomImage = previous?.customImagePath != null, cropRect = crop), loadCropSource = false)
         customImage = drafts.read(customName)
         customDraftName = customName.takeIf { customImage != null }
-        changeEditor { it.copy(hasCustomImage = customImage != null || previous?.customImagePath != null, error = if (customName != null && customImage == null) "图片草稿已过期，请重新选择图片" else null) }
+        val restoredSource = drafts.read(sourceName)
+        customOriginal = if (sourceName != null) restoredSource else container.iconStore.readOriginal(previous?.customOriginalPath)
+        originalDraftName = sourceName
+        customOriginalDirty = sourceName != null
+        if (customImage == null && customOriginal != null && (customName != null || sourceName != null)) {
+            // A disposable preview can be rebuilt; the original plus coordinates are authoritative.
+            try {
+                val recovered = withContext(Dispatchers.Default) { container.iconProcessor.crop(customOriginal!!, crop) }
+                customDraftName = drafts.write(id, recovered)
+                customImage = recovered
+            } catch (error: Exception) { rethrowCancellation(error) }
+        }
+        changeEditor { it.copy(hasCustomImage = customImage != null || previous?.customImagePath != null,
+            cropSource = customOriginal, canCrop = customOriginal != null,
+            error = when {
+                sourceName != null && restoredSource == null -> "原图草稿已过期，请重新导入图片后保存，或放弃本次编辑"
+                customName != null && customImage == null -> "图片草稿已过期，请重新选择图片"
+                else -> null
+            }) }
         updatePreview()
         if (mode == IconSourceMode.AUTO && !hasAutoImageForCurrentUrl() && url.isNotBlank()) fetchIcon(force = true)
     }
@@ -519,12 +652,19 @@ class MainViewModel(application: Application, private val savedState: SavedState
         fetchJob?.cancel()
         previewJob?.cancel()
         importJob?.cancel()
+        sourceJob?.cancel()
     }
 
     fun notify(message: String) { messageChannel.trySend(message) }
     private fun rethrowCancellation(error: Exception) { if (error is CancellationException) throw error }
-    private enum class RefreshResult { UPDATED, FAILED, SKIPPED }
+    private enum class RefreshResult(val message: String) {
+        UPDATED("已更新图标，保存在此设备"),
+        SYNC_REQUESTED("已更新图标并请求桌面同步，显示时间由启动器决定"),
+        SYNC_PENDING("图标已更新，桌面同步待重试"),
+        FAILED("未获取到新图标，已保留原图"),
+        SKIPPED("收藏已修改或正在刷新，本次未覆盖"),
+    }
     private companion object {
-        val DRAFT_KEYS = listOf("draft.id", "draft.new", "draft.title", "draft.url", "draft.mode", "draft.dirty", "draft.custom")
+        val DRAFT_KEYS = listOf("draft.id", "draft.new", "draft.title", "draft.url", "draft.mode", "draft.dirty", "draft.custom", "draft.original", "draft.crop")
     }
 }

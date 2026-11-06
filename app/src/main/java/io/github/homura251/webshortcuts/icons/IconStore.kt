@@ -27,34 +27,38 @@ class IconStore(context: Context) {
         mutex.withLock {
             val kind = if (mode == IconSourceMode.CUSTOM) "custom" else "auto"
             val relative = "icons/$kind/${id}_v$version.png"
-            val file = resolve(relative) ?: throw IOException("Invalid icon path.")
-            if (!file.parentFile!!.isDirectory && !file.parentFile!!.mkdirs()) throw IOException("Could not create icon directory.")
-            val atomic = AtomicFile(file)
-            val stream = atomic.startWrite()
-            try {
-                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw IOException("Could not encode icon.")
-                atomic.finishWrite(stream)
-            } catch (failure: Exception) {
-                atomic.failWrite(stream)
-                throw failure
-            }
-            relative
+            write(relative, bitmap)
         }
     }
 
-    suspend fun read(path: String?): Bitmap? = withContext(Dispatchers.IO) {
-        val file = path?.let(::resolve) ?: return@withContext null
+    /** Save an editable original separately from the already normalized launcher image. */
+    suspend fun saveOriginal(id: String, version: Int, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "Invalid bookmark id." }
+        require(version >= 1)
+        require(bitmap.width in 1..IconProcessor.MAX_EDITABLE_SIZE && bitmap.height in 1..IconProcessor.MAX_EDITABLE_SIZE)
+        mutex.withLock { write("icons/original/${id}_v$version.png", bitmap) }
+    }
+
+    suspend fun read(path: String?): Bitmap? = readImage(path, original = false)
+
+    suspend fun readOriginal(path: String?): Bitmap? = readImage(path, original = true)
+
+    private suspend fun readImage(path: String?, original: Boolean): Bitmap? = withContext(Dispatchers.IO) {
+        if (path == null || path.startsWith("icons/original/") != original) return@withContext null
+        val file = resolve(path) ?: return@withContext null
         mutex.withLock {
             if (!atomicFamilyIsLocal(file)) return@withLock null
             runCatching {
                 // openRead restores AtomicFile's legacy .bak after an interrupted write. Reading the
                 // base file directly can lose a recoverable icon or decode a partially written base.
-                val bytes = AtomicFile(file).openRead().use { IconPolicy.readBounded(it, IconPolicy.MAX_IMAGE_BYTES) }
+                val limit = if (original) IconProcessor.MAX_EDITABLE_BYTES else IconPolicy.MAX_IMAGE_BYTES
+                val bytes = AtomicFile(file).openRead().use { IconPolicy.readBounded(it, limit) }
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                 IconPolicy.validateDimensions(bounds.outWidth, bounds.outHeight)
+                if (original) require(bounds.outWidth <= IconProcessor.MAX_EDITABLE_SIZE && bounds.outHeight <= IconProcessor.MAX_EDITABLE_SIZE)
                 var sample = 1
-                while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1024) sample *= 2
+                if (!original) while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1024) sample *= 2
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply {
                     inSampleSize = sample
                     inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -63,16 +67,32 @@ class IconStore(context: Context) {
         }
     }
 
+    private fun write(relative: String, bitmap: Bitmap): String {
+        val file = resolve(relative) ?: throw IOException("Invalid icon path.")
+        if (!atomicFamilyIsLocal(file)) throw IOException("Invalid icon path.")
+        if (!file.parentFile!!.isDirectory && !file.parentFile!!.mkdirs()) throw IOException("Could not create icon directory.")
+        val atomic = AtomicFile(file)
+        val stream = atomic.startWrite()
+        try {
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw IOException("Could not encode icon.")
+            atomic.finishWrite(stream)
+        } catch (failure: Exception) {
+            atomic.failWrite(stream)
+            throw failure
+        }
+        return relative
+    }
+
     /** Run only after metadata commits, retaining both AUTO and CUSTOM histories still referenced. */
     suspend fun cleanup(bookmarks: List<BookmarkItem>) = withContext(Dispatchers.IO) {
-        val retained = bookmarks.flatMap { listOfNotNull(it.autoImagePath, it.customImagePath) }
+        val retained = bookmarks.flatMap { listOfNotNull(it.autoImagePath, it.customImagePath, it.customOriginalPath) }
             .mapNotNull(::resolve).flatMap { file ->
                 // Keep the whole AtomicFile family until openRead can perform recovery. In particular,
                 // the base may be absent while its only committed copy is still named .bak.
                 listOf(file.canonicalPath, file.canonicalPath + ".bak", file.canonicalPath + ".new")
             }.toSet()
         mutex.withLock {
-            listOf("auto", "custom").forEach { name ->
+            listOf("auto", "custom", "original").forEach { name ->
                 val directory = File(root, name)
                 // Do not follow a symlink or accept a path beyond the application's icon root.
                 if (root.canonicalFile != File(filesDir.canonicalFile, "icons") || !directory.isDirectory ||
@@ -87,7 +107,7 @@ class IconStore(context: Context) {
     }
 
     private fun resolve(relative: String): File? {
-        if (!relative.matches(Regex("icons/(auto|custom)/[A-Za-z0-9_-]{1,100}\\.(png|webp)"))) return null
+        if (!relative.matches(Regex("icons/(?:(?:auto|custom)/[A-Za-z0-9_-]{1,100}\\.(?:png|webp)|original/[A-Za-z0-9_-]{1,100}\\.png)"))) return null
         val file = File(filesDir, relative)
         if (root.canonicalFile != File(filesDir.canonicalFile, "icons")) return null
         if (file.canonicalFile != File(filesDir.canonicalFile, relative)) return null

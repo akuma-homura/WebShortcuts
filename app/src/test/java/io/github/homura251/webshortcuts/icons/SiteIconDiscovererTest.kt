@@ -23,7 +23,6 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -193,8 +192,52 @@ class SiteIconDiscovererTest {
         val result = discoverer.fetch(server.url("/site").toString())
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
-        assertEquals(3, server.requestCount)
-        assertEquals(listOf("/site", "/bad.png", "/favicon.ico"), recordedPaths(3))
+        assertEquals(listOf("/site", "/bad.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+            recordedPaths(server.requestCount))
+    }
+
+    @Test fun undeclaredAppleTouchIconBeatsSmallDeclaredAndRootFavicons() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/site" -> text("text/html", """<head><link rel="icon" sizes="32x32" href="/tiny.png"></head>""")
+                "/tiny.png" -> png(32)
+                "/apple-touch-icon.png" -> png(256)
+                "/favicon.ico" -> png(64)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/site").toString())!!
+        try {
+            assertEquals(server.url("/apple-touch-icon.png").toString(), result.sourceUrl)
+            assertEquals("Apple Touch Icon · 256×256", result.description)
+            assertEquals(listOf("/site", "/tiny.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+                recordedPaths(server.requestCount))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun precomposedFallbackUsesTheFinalRedirectOriginAndStopsAt512Pixels() = runBlocking {
+        val destination = MockWebServer()
+        destination.start()
+        try {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    MockResponse().setResponseCode(302).setHeader("Location", destination.url("/nested/landing?q=1"))
+            }
+            destination.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/nested/landing?q=1" -> text("text/html", "<head><base href='/unrelated/assets/'></head>")
+                    "/apple-touch-icon-precomposed.png" -> png(512)
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            val result = discoverer.fetch(server.url("/start").toString())!!
+            try {
+                assertEquals(destination.url("/apple-touch-icon-precomposed.png").toString(), result.sourceUrl)
+                assertEquals(listOf("/start"), recordedPaths(server.requestCount))
+                val paths = (1..destination.requestCount).map { destination.takeRequest(1, TimeUnit.SECONDS)?.path }
+                assertEquals(listOf("/nested/landing?q=1", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"), paths)
+            } finally { result.bitmap.recycle() }
+        } finally { destination.shutdown() }
     }
 
     @Test fun manyBrokenDeclarationsStillReachRootFaviconWithinCandidateBudget() = runBlocking {
@@ -209,7 +252,9 @@ class SiteIconDiscovererTest {
         val result = discoverer.fetch(server.url("/site").toString())
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
-        assertEquals(13, server.requestCount) // The HTML plus at most twelve candidate attempts.
+        assertEquals(listOf("/site") + (1..9).map { "/bad$it.png" } +
+            listOf("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+            recordedPaths(server.requestCount))
     }
 
     @Test fun oversizedIconSkipsToFallback() = runBlocking {
@@ -225,8 +270,8 @@ class SiteIconDiscovererTest {
         val result = discoverer.fetch(server.url("/site").toString())
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
-        assertEquals(3, server.requestCount)
-        assertEquals(listOf("/site", "/large.png", "/favicon.ico"), recordedPaths(3))
+        assertEquals(listOf("/site", "/large.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+            recordedPaths(server.requestCount))
     }
 
     @Test fun callerCancellationStopsAnUnresponsiveRequest() = runBlocking {
@@ -241,16 +286,16 @@ class SiteIconDiscovererTest {
     }
 
     @Test fun redirectLoopsAreBounded() = runBlocking {
-        val requests = AtomicInteger()
         server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse = if (requests.incrementAndGet() <= 5) {
+            override fun dispatch(request: RecordedRequest): MockResponse =
                 MockResponse().setResponseCode(302).setHeader("Location", "/loop")
-            } else MockResponse().setResponseCode(404)
         }
         assertNull(discoverer.fetch(server.url("/loop").toString()))
-        assertEquals(6, server.requestCount)
-        // Four page attempts exhaust its redirect budget; the root fallback starts a new bounded chain.
-        assertEquals(listOf("/loop", "/loop", "/loop", "/loop", "/favicon.ico", "/loop"), recordedPaths(6))
+        // The page and each of the three root resources get at most four redirect attempts.
+        val loop = listOf("/loop", "/loop", "/loop")
+        assertEquals(listOf("/loop") + loop + listOf("/apple-touch-icon.png") + loop +
+            listOf("/apple-touch-icon-precomposed.png") + loop + listOf("/favicon.ico") + loop,
+            recordedPaths(server.requestCount))
     }
 
     private fun recordedPaths(count: Int): List<String?> = (1..count).map {

@@ -9,13 +9,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import io.github.homura251.webshortcuts.icons.IconPolicy
+import io.github.homura251.webshortcuts.icons.IconProcessor
 
-/** Temporary, private normalized images; never copies a photo into saved bookmarks before Save. */
+/** Temporary, private originals/previews; no image becomes a saved bookmark before Save. */
 internal class EditorDraftStore(context: Context) {
     private val directory = File(context.cacheDir, "editor-drafts")
 
     suspend fun write(id: String, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         UUID.fromString(id)
+        require(bitmap.width in 1..IconProcessor.MAX_EDITABLE_SIZE && bitmap.height in 1..IconProcessor.MAX_EDITABLE_SIZE)
         if (!directory.exists() && !directory.mkdirs()) throw IOException("无法保存图片草稿")
         val name = "${id}_${UUID.randomUUID()}.png"
         val target = AtomicFile(File(directory, name))
@@ -32,11 +35,13 @@ internal class EditorDraftStore(context: Context) {
 
     suspend fun read(name: String?): Bitmap? = withContext(Dispatchers.IO) {
         val file = fileFor(name) ?: return@withContext null
-        if (!file.isFile || file.length() > 5L * 1024 * 1024) return@withContext null
+        val bytes = runCatching {
+            AtomicFile(file).openRead().use { IconPolicy.readBounded(it, IconProcessor.MAX_EDITABLE_BYTES) }
+        }.getOrNull() ?: return@withContext null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.path, bounds)
-        if (bounds.outWidth !in 1..512 || bounds.outHeight !in 1..512) return@withContext null
-        BitmapFactory.decodeFile(file.path)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth !in 1..IconProcessor.MAX_EDITABLE_SIZE || bounds.outHeight !in 1..IconProcessor.MAX_EDITABLE_SIZE) return@withContext null
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
     suspend fun delete(name: String?) = withContext(Dispatchers.IO) {
@@ -48,8 +53,11 @@ internal class EditorDraftStore(context: Context) {
         return File(directory, name)
     }
 
-    suspend fun prune(keep: String?) = withContext(Dispatchers.IO) {
+    suspend fun prune(keep: String?) = prune(setOfNotNull(keep))
+
+    suspend fun prune(keep: Set<String>) = withContext(Dispatchers.IO) {
         val expiry = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
-        directory.listFiles()?.filter { it.name != keep && it.lastModified() < expiry }?.forEach { it.delete() }
+        val retained = keep.flatMap { listOf(it, "$it.bak", "$it.new") }.toSet()
+        directory.listFiles()?.filter { it.name !in retained && it.lastModified() < expiry }?.forEach { it.delete() }
     }
 }

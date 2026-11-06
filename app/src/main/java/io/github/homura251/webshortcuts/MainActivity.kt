@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
                     onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onRefetchIcon = viewModel::refetchIcon, onSave = viewModel::save,
                     onCenterCropChange = viewModel::setCenterCrop,
+                    onCropApply = viewModel::applyCustomCrop,
+                    onClearRefreshSummary = viewModel::clearRefreshSummary,
                 )
             }
         }

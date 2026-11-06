@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import io.github.homura251.webshortcuts.icons.CropRect
 
 class BookmarkCodecTest {
     private val id = "d75e094f-e593-4835-874b-2526e8c63dbd"
@@ -58,5 +59,27 @@ class BookmarkCodecTest {
         assertEquals(emptyList<BookmarkItem>(), BookmarkCodec.decode(BookmarkCodec.encode(emptyList())))
         val item = BookmarkItem(id = id, title = "Example", url = "https://example.com/", createdAt = 10, updatedAt = 10)
         assertEquals(item, BookmarkCodec.decode(BookmarkCodec.encode(listOf(item))).single())
+    }
+
+    @Test fun `editable original and off-center crop survive save and reload`() {
+        val item = BookmarkItem(id = id, title = "Custom", url = "https://example.com/",
+            selectedIconSource = IconSourceMode.CUSTOM, customImagePath = "icons/custom/${id}_v4.png",
+            customOriginalPath = "icons/original/${id}_v4.png", customCrop = CropRect(0.4f, 0.1f, 0.9f, 0.8f))
+        assertEquals(item, BookmarkCodec.decode(BookmarkCodec.encode(listOf(item))).single())
+    }
+
+    @Test fun `v2 image cache remains readable without inventing an editable original`() {
+        val json = """{"schemaVersion":2,"bookmarks":[{"id":"$id","title":"Legacy","url":"https://example.com/","selectedIconSource":"CUSTOM","customImagePath":"icons/custom/${id}_v1.png"}]}"""
+        val item = BookmarkCodec.decode(json).single()
+        assertEquals("icons/custom/${id}_v1.png", item.customImagePath)
+        assertNull(item.customOriginalPath)
+        assertNull(item.customCrop)
+    }
+
+    @Test fun `invalid crop cannot silently discard saved editing state`() {
+        val json = """{"schemaVersion":3,"bookmarks":[{"id":"$id","title":"Custom","url":"https://example.com/","customCrop":{"left":0.7,"top":0,"right":0.2,"bottom":1}}]}"""
+        assertThrows(IllegalArgumentException::class.java) { BookmarkCodec.decode(json) }
+        val invalid = BookmarkItem(id = id, title = "Custom", url = "https://example.com/", customOriginalPath = "icons/original/../../other.png")
+        assertThrows(IllegalArgumentException::class.java) { BookmarkCodec.encode(listOf(invalid)) }
     }
 }
