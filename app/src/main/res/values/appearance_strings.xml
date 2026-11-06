@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_title">个性化外观</string>
+    <string name="appearance_subtitle">配色、明暗与布局，即时生效。</string>
+    <string name="dynamic_color_title">使用壁纸动态色彩</string>
+    <string name="dynamic_color_description">Material You · 跟随系统壁纸配色</string>
+    <string name="palette_title">精选主题色</string>
+    <string name="palette_dynamic_hint">选择色板将切换为应用配色。</string>
+    <string name="palette_emerald">翡翠青</string>
+    <string name="palette_ocean">深海蓝</string>
+    <string name="palette_amber">落日琥珀</string>
+    <string name="palette_iris">鸢尾紫</string>
+    <string name="palette_rose">樱花粉</string>
+    <string name="theme_mode_title">深浅色模式</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="layout_title">首页布局</string>
+    <string name="layout_list">紧凑列表</string>
+    <string name="layout_grid">双列网格</string>
+    <string name="show_list">切换到列表视图</string>
+    <string name="show_grid">切换到网格视图</string>
+    <string name="website_details">网站信息</string>
+</resources>

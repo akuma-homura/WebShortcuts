@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -87,7 +88,7 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
     var square by rememberSaveable(source) { mutableStateOf(false) }
     val aspect = if (square) source.height.toFloat() / source.width else null
     val screenHeight = LocalConfiguration.current.screenHeightDp
-    val previewHeight = (screenHeight * 0.34f).coerceIn(140f, 280f).dp
+    val previewHeight = (screenHeight * 0.28f).coerceIn(128f, 220f).dp
     val dimensions = stringResource(R.string.free_crop_dimensions,
         (crop.width * source.width).roundToInt().coerceAtLeast(1),
         (crop.height * source.height).roundToInt().coerceAtLeast(1))
@@ -97,16 +98,18 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
             crop.centerX + width / 2f, crop.centerY + height / 2f, minimum.width, minimum.height)
     }
 
-    Surface(shape = RoundedCornerShape(24.dp), modifier = Modifier.padding(12.dp)
+    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.padding(12.dp)
             .widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (screenHeight - 48).coerceAtLeast(200).dp)) {
             Column {
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.free_crop_title), style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.semantics { heading() })
                     Text(stringResource(R.string.free_crop_help), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically) {
                         FilterChip(selected = !square, onClick = { square = false },
                             label = { Text(stringResource(R.string.free_crop_free_ratio)) },
                             modifier = Modifier.testTag("crop_ratio_free"))
@@ -128,28 +131,32 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
 
                     val minWidth = if (aspect == null) minimum.width else maxOf(minimum.width, minimum.height * aspect)
                     val maxWidth = if (aspect == null) 1f else min(1f, aspect)
-                    CropSlider(stringResource(R.string.free_crop_width), fraction(crop.width, minWidth, maxWidth),
-                        enabled = maxWidth - minWidth > 0.000001f, tag = "crop_width", onValueChange = { value ->
-                            val width = minWidth + value * (maxWidth - minWidth)
-                            resizeCentered(width, if (aspect == null) crop.height else width / aspect)
-                        })
-                    if (!square) {
-                        CropSlider(stringResource(R.string.free_crop_height), fraction(crop.height, minimum.height, 1f),
-                            enabled = minimum.height < 0.999999f, tag = "crop_height", onValueChange = { value ->
-                                resizeCentered(crop.width, minimum.height + value * (1f - minimum.height))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CropSlider(stringResource(R.string.free_crop_width), fraction(crop.width, minWidth, maxWidth), modifier = Modifier.weight(1f),
+                            enabled = maxWidth - minWidth > 0.000001f, tag = "crop_width", onValueChange = { value ->
+                                val width = minWidth + value * (maxWidth - minWidth)
+                                resizeCentered(width, if (aspect == null) crop.height else width / aspect)
+                            })
+                        if (!square) {
+                            CropSlider(stringResource(R.string.free_crop_height), fraction(crop.height, minimum.height, 1f), modifier = Modifier.weight(1f),
+                                enabled = minimum.height < 0.999999f, tag = "crop_height", onValueChange = { value ->
+                                    resizeCentered(crop.width, minimum.height + value * (1f - minimum.height))
+                                })
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CropSlider(stringResource(R.string.free_crop_horizontal), fraction(crop.left, 0f, 1f - crop.width),
+                            enabled = crop.width < 0.999999f, tag = "crop_horizontal", modifier = Modifier.weight(1f), onValueChange = { value ->
+                                crop = crop.moved(value * (1f - crop.width) - crop.left, 0f)
+                            })
+                        CropSlider(stringResource(R.string.free_crop_vertical), fraction(crop.top, 0f, 1f - crop.height),
+                            enabled = crop.height < 0.999999f, tag = "crop_vertical", modifier = Modifier.weight(1f), onValueChange = { value ->
+                                crop = crop.moved(0f, value * (1f - crop.height) - crop.top)
                             })
                     }
-                    CropSlider(stringResource(R.string.free_crop_horizontal), fraction(crop.left, 0f, 1f - crop.width),
-                        enabled = crop.width < 0.999999f, tag = "crop_horizontal", onValueChange = { value ->
-                            crop = crop.moved(value * (1f - crop.width) - crop.left, 0f)
-                        })
-                    CropSlider(stringResource(R.string.free_crop_vertical), fraction(crop.top, 0f, 1f - crop.height),
-                        enabled = crop.height < 0.999999f, tag = "crop_vertical", onValueChange = { value ->
-                            crop = crop.moved(0f, value * (1f - crop.height) - crop.top)
-                        })
                 }
                 HorizontalDivider()
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss, modifier = Modifier.testTag("cancel_crop")) {
                         Text(stringResource(R.string.free_crop_cancel))
@@ -184,16 +191,28 @@ internal fun FreeCropEditorPreview() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CropSlider(label: String, value: Float, enabled: Boolean, tag: String, onValueChange: (Float) -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        val percentage = stringResource(R.string.free_crop_percent, (value * 100).roundToInt())
-        Slider(value = value, onValueChange = onValueChange, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().testTag(tag).semantics {
-                contentDescription = label
-                stateDescription = percentage
-            })
+private fun CropSlider(label: String, value: Float, enabled: Boolean, tag: String, modifier: Modifier = Modifier,
+                       onValueChange: (Float) -> Unit) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            val percentage = stringResource(R.string.free_crop_percent, (value * 100).roundToInt())
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.labelMedium)
+                Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                    Text(percentage, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                }
+            }
+            Slider(value = value, onValueChange = onValueChange, enabled = enabled,
+                modifier = Modifier.fillMaxWidth().testTag(tag).semantics {
+                    contentDescription = label
+                    stateDescription = percentage
+                })
+        }
     }
 }
 
@@ -205,6 +224,7 @@ private fun CropSelection(source: Bitmap, crop: CropRect, onCropChange: (CropRec
     val latestCrop by rememberUpdatedState(crop)
     val latestChange by rememberUpdatedState(onCropChange)
     val selectionColor = MaterialTheme.colorScheme.primary
+    val selectionContrast = MaterialTheme.colorScheme.onPrimary
     val canvasDescription = stringResource(R.string.free_crop_original)
     Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)
         .testTag("free_crop_canvas").semantics {
@@ -256,12 +276,13 @@ private fun CropSelection(source: Bitmap, crop: CropRect, onCropChange: (CropRec
         for (index in 1..2) {
             val x = selected.left + selected.width * index / 3f
             val y = selected.top + selected.height * index / 3f
-            drawLine(Color.White.copy(alpha = 0.65f), Offset(x, selected.top), Offset(x, selected.bottom), 1.dp.toPx())
-            drawLine(Color.White.copy(alpha = 0.65f), Offset(selected.left, y), Offset(selected.right, y), 1.dp.toPx())
+            drawLine(selectionContrast.copy(alpha = 0.65f), Offset(x, selected.top), Offset(x, selected.bottom), 1.dp.toPx())
+            drawLine(selectionContrast.copy(alpha = 0.65f), Offset(selected.left, y), Offset(selected.right, y), 1.dp.toPx())
         }
-        drawRect(Color.White, selected.topLeft, selected.size, style = Stroke(2.dp.toPx()))
+        drawRect(selectionContrast, selected.topLeft, selected.size, style = Stroke(4.dp.toPx()))
+        drawRect(selectionColor, selected.topLeft, selected.size, style = Stroke(2.dp.toPx()))
         listOf(selected.topLeft, selected.topRight, selected.bottomLeft, selected.bottomRight).forEach { position ->
-            drawCircle(Color.White, 7.dp.toPx(), position)
+            drawCircle(selectionContrast, 7.dp.toPx(), position)
             drawCircle(selectionColor, 4.dp.toPx(), position)
         }
     }
