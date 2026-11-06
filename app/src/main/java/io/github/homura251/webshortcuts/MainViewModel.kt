@@ -146,8 +146,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
         customOriginalDirty = false
         customDraftName = null
         originalDraftName = null
-        mutableState.update { it.copy(editor = null) }
         DRAFT_KEYS.forEach { savedState.remove<Any?>(it) }
+        // A closed editor must already have no restorable draft when subscribers observe it.
+        mutableState.update { it.copy(editor = null) }
         viewModelScope.launch { drafts.delete(discarded); drafts.delete(discardedOriginal) }
     }
 
