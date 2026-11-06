@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="free_crop_title">自由裁切</string>
+    <string name="free_crop_help">拖动选框移动，拖动四角改变范围；也可使用下方滑块调整。</string>
+    <string name="free_crop_original">原图与裁切选区</string>
+    <string name="free_crop_free_ratio">自由比例</string>
+    <string name="free_crop_square_ratio">1:1</string>
+    <string name="free_crop_reset">重置</string>
+    <string name="free_crop_cancel">取消</string>
+    <string name="free_crop_apply">应用裁切</string>
+    <string name="free_crop_dimensions">选区 %1$d × %2$d 像素</string>
+    <string name="free_crop_precise">精确调整</string>
+    <string name="free_crop_width">选区宽度</string>
+    <string name="free_crop_height">选区高度</string>
+    <string name="free_crop_horizontal">横向位置</string>
+    <string name="free_crop_vertical">纵向位置</string>
+    <string name="free_crop_percent">%1$d%%</string>
+</resources>
