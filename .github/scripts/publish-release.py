@@ -108,6 +108,8 @@ def package():
             raise ValueError('Release APK embeds a different source commit')
     value['tests'] = {'jvm': test_counts('downloaded-reports/jvm'), 'android35': test_counts('downloaded-reports/device')}
     value['publicationRunId'] = os.environ['GITHUB_RUN_ID']
+    value['publicationWorkflowCommit'] = os.environ['GITHUB_SHA']
+    value['publicationUrl'] = f'https://github.com/{value["repository"]}/actions/runs/{value["publicationRunId"]}'
     prefix = f'WebShortcuts-{value["tag"]}-{value["commit"][:7]}-ci-{value["buildRunId"]}-{value["buildAttempt"]}'
     output = Path('release-assets')
     output.mkdir(exist_ok=False)
