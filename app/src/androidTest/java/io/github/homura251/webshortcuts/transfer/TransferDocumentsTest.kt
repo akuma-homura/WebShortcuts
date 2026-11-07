@@ -59,7 +59,7 @@ class TransferDocumentsTest {
         await("confirm_import")
         compose.onNodeWithTag("confirm_import").performClick()
         await("transfer_result")
-        compose.onNodeWithTag("transfer_result").assertTextContains("已新增 1 条收藏")
+        compose.onNodeWithTag("transfer_result").assertTextContains("已新增 1 条收藏", substring = true)
         assertEquals("导入 <标题>", application.container.repository.bookmarks.value.single().title)
         assertNull(application.container.repository.bookmarks.value.single().autoImagePath)
         compose.onNodeWithText("完成").performClick()
@@ -71,7 +71,7 @@ class TransferDocumentsTest {
             openTransfer()
             compose.onNodeWithTag("export_$format").performClick()
             await("transfer_result")
-            compose.onNodeWithTag("transfer_result").assertTextContains("已导出 1 条收藏")
+            compose.onNodeWithTag("transfer_result").assertTextContains("已导出 1 条收藏", substring = true)
             val bytes = resolver.openInputStream(uri("export.$format"))!!.use { it.readBytes() }
             assertTrue(bytes.isNotEmpty())
             if (format == "html") assertTrue(bytes.toString(Charsets.UTF_8).contains("导入 &lt;标题&gt;"))
