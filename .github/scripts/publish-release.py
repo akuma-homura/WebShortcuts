@@ -140,8 +140,8 @@ def publish():
     repo, tag, run_id = inputs()
     # Recheck the tag and source run immediately before any remote release write.
     validate()
-    if validation()['commit'] != value['commit']:
-        raise ValueError('Release tag changed during publication')
+    if validation() != value:
+        raise ValueError('Release tag, build attempt or artifacts changed during publication')
     found = subprocess.run(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
                            capture_output=True, text=True)
     if found.returncode:
@@ -154,10 +154,12 @@ def publish():
     release = json.loads(found.stdout)
     existing = {a['name']: a for a in release['assets']}
     files = sorted(Path('release-assets').iterdir())
+    existing_downloads = Path('existing-downloads')
+    existing_downloads.mkdir(exist_ok=False)
     for path in files:
         if path.name in existing:
-            actual = existing[path.name].get('digest')
-            if actual != f'sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}':
+            command('gh', 'release', 'download', tag, '--repo', repo, '--pattern', path.name, '--dir', str(existing_downloads))
+            if hashlib.sha256((existing_downloads / path.name).read_bytes()).digest() != hashlib.sha256(path.read_bytes()).digest():
                 raise ValueError(f'Refusing to replace existing asset: {path.name}')
         else:
             command('gh', 'release', 'upload', tag, str(path), '--repo', repo)
