@@ -154,6 +154,24 @@ class BookmarkRepository(context: Context) {
         }
     }
 
+    suspend fun reorderBookmarks(baseOrder: List<String>, orderedScope: List<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            ensureAvailable()
+            val old = mutableLibrary.value
+            val updated = old.copy(bookmarks = LibraryOrdering.reorder(old.bookmarks, BookmarkItem::id, baseOrder, orderedScope))
+            if (updated != old) writeToDisk(updated)
+        }
+    }
+
+    suspend fun reorderTags(baseOrder: List<String>, orderedScope: List<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            ensureAvailable()
+            val old = mutableLibrary.value
+            val updated = old.copy(tags = LibraryOrdering.reorder(old.tags, BookmarkTag::id, baseOrder, orderedScope))
+            if (updated != old) writeToDisk(updated)
+        }
+    }
+
     private fun ensureAvailable() {
         if (!attemptedLoad) readFromDisk()
         mutableLoadError.value?.let { throw IOException(it) }

@@ -49,6 +49,11 @@ import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkTag
 import io.github.homura251.webshortcuts.data.LibraryTags
 import io.github.homura251.webshortcuts.data.TagFilter
+import io.github.homura251.webshortcuts.data.LibraryOrdering
+import io.github.homura251.webshortcuts.data.LibrarySnapshot
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material.icons.automirrored.filled.Sort
 
 data class TagActions(
     val filter: (TagFilter) -> Unit = {},
@@ -93,6 +98,10 @@ internal fun TagPanel(title: String, onDismiss: () -> Unit, canDismiss: Boolean 
 @Composable
 internal fun TagFilterContent(state: HomeUiState, onChange: (TagFilter) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
+    val locale = LocalConfiguration.current.locales[0]
+    val ordered = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
+    }
     OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_tags)) },
         singleLine = true, modifier = Modifier.fillMaxWidth().testTag("filter_tag_search"))
     Text(stringResource(R.string.tag_filter_hint), style = MaterialTheme.typography.bodySmall,
@@ -102,7 +111,7 @@ internal fun TagFilterContent(state: HomeUiState, onChange: (TagFilter) -> Unit)
             "filter_all") { onChange(TagFilter()) } }
         item { TagChoice(stringResource(R.string.untagged), state.tagFilter.untagged,
             state.bookmarks.count { it.tagIds.isEmpty() }, "filter_untagged") { onChange(TagFilter(untagged = true)) } }
-        items(state.tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
+        items(ordered.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
             TagChoice(tag.name, tag.id in state.tagFilter.ids,
                 state.bookmarks.count { tag.id in it.tagIds }, "filter_tag_${tag.id}") { onChange(state.tagFilter.toggle(tag.id)) }
         }
@@ -145,7 +154,7 @@ internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEdi
     if (state.error != null) Text(state.error, color = MaterialTheme.colorScheme.error,
         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("tag_error"))
     LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("edit_tag_list")) {
-        items(tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
+        items(tags.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
             TagChoice(tag.name, tag.id in state.selectedIds, null, "edit_tag_${tag.id}", !state.saving) { onToggle(tag.id) }
         }
         items(state.newNames.filter { it.contains(query.trim(), true) }, key = { "new:$it" }) { name ->
@@ -165,12 +174,17 @@ internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEdi
 }
 
 @Composable
-internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, onRename: (String, String) -> Unit, onDelete: (String) -> Unit) {
+internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, onRename: (String, String) -> Unit, onDelete: (String) -> Unit,
+    onShowSorting: (String) -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
     var renameName by rememberSaveable { mutableStateOf("") }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var validationError by rememberSaveable { mutableStateOf<String?>(null) }
+    val locale = LocalConfiguration.current.locales[0]
+    val ordered = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
+    }
     LaunchedEffect(state.tags) {
         if (state.tags.any { LibraryTags.key(it.name) == LibraryTags.key(query.trim()) }) query = ""
     }
@@ -184,10 +198,14 @@ internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, o
         }, enabled = !state.tagSaving && query.isNotBlank(), modifier = Modifier.testTag("create_tag")) {
             Icon(Icons.Default.Add, stringResource(R.string.create_tag))
         }
+        IconButton(onClick = { onShowSorting(query) }, enabled = !state.tagSaving && !state.transferBusy && state.reorder == null,
+            modifier = Modifier.testTag("open_tag_sort")) {
+            Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.TAGS)))
+        }
     }
     (validationError ?: state.tagError)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
     LazyColumn(Modifier.fillMaxWidth().testTag("manage_tag_list")) {
-        items(state.tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
+        items(ordered.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
                     Text(tag.name, style = MaterialTheme.typography.bodyLarge)

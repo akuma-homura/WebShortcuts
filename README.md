@@ -2,12 +2,13 @@
 
 把常用网站放进一个轻巧的 Android 应用，为每个网站创建独立的桌面快捷方式。
 
-WebShortcuts v1.3 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Android 8.0（API 26）及以上，面向 Android 16（API 36）。收藏与图片默认保存在设备私有目录，可手动导出到所选文件位置；不包含账号系统、自动云同步或统计 SDK。
+WebShortcuts v1.4 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Android 8.0（API 26）及以上，面向 Android 16（API 36）。收藏与图片默认保存在设备私有目录，可手动导出到所选文件位置；不包含账号系统、自动云同步或统计 SDK。
 
 ## 功能
 
 - **网站收藏**：新增、编辑、删除、名称/网址/标签搜索，也可以从浏览器分享网址到 WebShortcuts。
 - **标签分组**：一个收藏可关联多个标签；点击标签或搜索名称筛选，多选标签取交集，支持「无标签」。编辑器和收藏菜单可改标签，长按多选可批量添加或移除；标签管理可新建、重命名、删除，删除标签不会删除收藏。
+- **自动与手动排序**：收藏按添加时间、更新时间、名称排序，默认最近添加在前；标签按名称或全库收藏数量排序，支持升降序。切换手动后可拖拽整理，也可从菜单上移、下移；筛选内只调整可见位置，隐藏项目保持原位。排序方式留在本机，ZIP/HTML 按保存顺序导出，ZIP 同时保留标签顺序。
 - **完整备份与恢复**：ZIP 包含收藏、标签目录及关联、自动/自定义图标、可编辑原图、裁切参数、来源时间及外观设置。先预览再合并或全量替换；重复 ID 保留本机内容并补充新标签，不同 ID 的同网址定制可同时保留。外观恢复默认关闭。
 - **浏览器书签互通**：导入或导出 Chrome、Edge、Firefox 通用的 Netscape HTML 书签。文件夹中的书签平铺导入，按完整网址去重，仅接受 HTTP(S)；HTML 不携带标签、图标定制或浏览器登录态。
 - **三种图标模式**：自动发现网站图标、系统 Photo Picker 导入图片、根据名称生成字母/汉字图标。模式显式切换，自定义图片不会被自动刷新覆盖。
@@ -50,7 +51,7 @@ Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手�
 
 工具链固定为 AGP 8.13.2、Gradle 8.13、Kotlin 2.2.21、Compose BOM 2025.12.00。构建依赖从 Google Maven 和 Maven Central 获取。
 
-`app/src/debug/.../ui/TagPreviews.kt` 提供标签列表、网格、批量整理、标签面板和大字体预览；`CompactUiPreviews.kt` 提供列表、网格、深色、图标编辑器、外观设置与 200% 字体预览。Android Studio 可直接渲染；安装 Android CLI 后也可运行 `android preview render :app --fqn=io.github.homura251.webshortcuts.ui.CompactUiPreviewsKt.CompactListPreview --component-tree`。这些预览仅使用本地演示数据。
+`app/src/debug/.../ui/SortingPreviews.kt` 提供排序设置、手动整理和大字体预览；`TagPreviews.kt` 提供标签列表、网格、批量整理、标签面板和大字体预览；`CompactUiPreviews.kt` 提供列表、网格、深色、图标编辑器、外观设置与 200% 字体预览。Android Studio 可直接渲染；安装 Android CLI 后也可运行 `android preview render :app --fqn=io.github.homura251.webshortcuts.ui.CompactUiPreviewsKt.CompactListPreview --component-tree`。这些预览仅使用本地演示数据。
 
 ## 使用方式
 
@@ -64,6 +65,8 @@ Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手�
 
 8. 点击搜索框旁的标签按钮，选择一个或多个标签；首页搜索文字与标签筛选共同生效。长按收藏进入多选，「全选」仅选择当前结果，再点「添加标签」或「移除标签」。清除搜索与清除标签互不影响；新建收藏继承当前选中的标签。
 9. 更多菜单打开「标签管理」。标签名称去首尾空白，限 1–40 字符且忽略大小写判重；可保留空标签。ZIP 会保留标签，HTML 继续平铺；旧 ZIP 或 HTML 全量替换时会清空标签，二次确认会明确提示。
+
+10. 点击首页统计区的排序按钮，选择添加时间、更新时间、名称或手动排序。自动排序只改变展示；切回手动仍保留原顺序。选择手动后点击「整理顺序」，完成保存或返回放弃，长按多选仍保留原用途。标签管理面板可设置标签排序，标签选择和卡片使用同一顺序；「全部收藏」「无标签」固定在前。
 
 ZIP 使用格式版本 1，包含 `manifest.json`、现有 schemaVersion 4 的 `bookmarks.json`、`appearance.json` 与图像文件。最多 2000 条收藏、2000 个标签，HTML/收藏 JSON 上限 4 MiB，ZIP 文件与解压总量各上限 256 MiB。备份不加密，包含网址与图片，请妥善保存。缓存中已缺失的图像会明确提示并从备份引用中移除；原图存在时继续保留原图和裁切参数。文件损坏、版本不支持或导入失败时保留现有收藏。
 

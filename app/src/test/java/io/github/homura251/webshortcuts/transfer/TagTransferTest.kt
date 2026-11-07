@@ -43,6 +43,38 @@ class TagTransferTest {
         container = AppContainer(context)
     }
 
+    @Test fun backupsKeepManualOrderWhileSortPreferencesRemainLocalEvenWhenRestoringAppearance() = runBlocking {
+        val second = item.copy(id = "second", title = "Zebra", url = "https://zebra.test/")
+        val empty = BookmarkTag("empty", "Empty")
+        repo.replaceAll(LibrarySnapshot(listOf(item, second), listOf(localTag, empty)))
+        repo.reorderBookmarks(listOf(item.id, second.id), listOf(second.id, item.id))
+        repo.reorderTags(listOf(localTag.id, empty.id), listOf(empty.id, localTag.id))
+        val stored = repo.library.value
+        container.sortPreferences.update(LibrarySortPreferences(bookmarks = BookmarkSortField.TITLE))
+        val zip = manager.prepareExport(TransferFormat.BACKUP_ZIP, token()) {}
+        val backup = File(context.cacheDir, "transfers/${zip.token}/export.zip")
+        val html = manager.prepareExport(TransferFormat.BOOKMARKS_HTML, token()) {}
+        val htmlText = File(context.cacheDir, "transfers/${html.token}/export.html").readText()
+        assertTrue(htmlText.indexOf("Zebra") < htmlText.indexOf("Local"))
+        repo.replaceAll(LibrarySnapshot())
+        val localPreference = LibrarySortPreferences(bookmarks = BookmarkSortField.MANUAL, tags = TagSortField.MANUAL)
+        container.sortPreferences.update(localPreference)
+        val t = token()
+        manager.prepareImport(Uri.fromFile(backup), t) {}
+        manager.commitImport(t, ImportMode.REPLACE, true) {}
+        assertEquals(stored.bookmarks.map { it.id }, repo.library.value.bookmarks.map { it.id })
+        assertEquals(stored.tags, repo.library.value.tags)
+        assertEquals(localPreference, container.sortPreferences.state.value)
+        java.util.zip.ZipFile(backup).use { archive ->
+            assertEquals(setOf("manifest.json", "bookmarks.json", "appearance.json"), archive.entries().asSequence().map { it.name }.toSet())
+        }
+        val htmlToken = token()
+        manager.prepareImport(Uri.fromFile(File(context.cacheDir, "transfers/${html.token}/export.html")), htmlToken) {}
+        manager.commitImport(htmlToken, ImportMode.REPLACE, true) {}
+        assertEquals(listOf("Zebra", "Local"), repo.library.value.bookmarks.map { it.title })
+        assertEquals(localPreference, container.sortPreferences.state.value)
+    }
+
     @Test fun zipRoundTripRestoresEmptyTagsAndAssociations() = runBlocking {
         val original = LibrarySnapshot(listOf(item), listOf(localTag, BookmarkTag("empty", "Empty")))
         repo.replaceAll(original)
