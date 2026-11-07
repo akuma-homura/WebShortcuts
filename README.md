@@ -35,9 +35,11 @@ WebShortcuts v1.2 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 
 ## 将 APK 发布到版本标签
 
-Android CI 的手动运行支持两个可选字段：`publish_tag` 和 `build_run_id`。留空时正常构建和测试；填写版本标签及已成功的 CI 运行 ID 时，只发布这次运行的产物，不重复构建。
+Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_run_id`。留空时正常构建和测试；填写版本标签及已成功的 CI 运行 ID 时，只发布这次运行的产物，不重复构建。
 
 先对目标 tag/分支运行 Android CI，等待构建、Lint 和 Android 35 设备测试成功，再使用对应 tag 与运行 ID 执行发布。任务会核对同仓库、精确提交 SHA、APK 版本、内嵌源码版本及测试报告；生成带来源运行 ID 的 APK、SHA-256 和构建信息，上传后重新下载校验，最后发布对应 Release。不会移动标签或覆盖同名附件。
+
+排查设备测试失败时，可单独填写 `inspect_run_id` 读取该次运行的完整 JUnit 失败信息，不构建或发布应用。
 
 发布包保留 CI 测试签名；它可能与本地交付包或另一次 CI 的签名不同。更换签名前先导出 ZIP 备份，卸载旧包后再安装并导入。R8 包仍为未签名版本。
 

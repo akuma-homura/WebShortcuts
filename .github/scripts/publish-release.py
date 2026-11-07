@@ -20,6 +20,8 @@ def api(path):
 
 
 def inputs():
+    if os.environ.get('INSPECT_RUN_ID'):
+        raise ValueError('Choose publication or report inspection, not both')
     repo = os.environ['GH_REPO']
     tag = os.environ['RELEASE_TAG']
     run_id = os.environ['BUILD_RUN_ID']

@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('publisher', Path(__file__).parents[1] / 'publish-release.py')
 publisher = importlib.util.module_from_spec(spec)
@@ -43,6 +44,11 @@ class PublicationGuardsTest(unittest.TestCase):
         run = dict(self.run, path='.github/workflows/other.yml')
         with self.assertRaisesRegex(ValueError, 'Android CI'):
             publisher.validate_run(run, self.repo, self.sha)
+
+    def test_conflicting_manual_modes_fail_instead_of_reporting_false_success(self):
+        with patch.dict('os.environ', {'INSPECT_RUN_ID': '42'}):
+            with self.assertRaisesRegex(ValueError, 'not both'):
+                publisher.inputs()
 
     def test_junit_suite_and_skip_counts_are_retained(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -139,7 +139,7 @@ jobs:
 
   publish-release:
     name: Publish verified APKs to release
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_tag != '' && inputs.inspect_run_id == ''
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -150,6 +150,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ inputs.publish_tag }}
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      INSPECT_RUN_ID: ${{ inputs.inspect_run_id }}
     steps:
       - uses: actions/checkout@v5
       - name: Verify release publication guards
