@@ -9,6 +9,9 @@ import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.icons.IconStore
 import io.github.homura251.webshortcuts.icons.SiteIconDiscoverer
 import io.github.homura251.webshortcuts.shortcuts.ShortcutPublisher
+import io.github.homura251.webshortcuts.transfer.TransferGate
+import io.github.homura251.webshortcuts.transfer.TransferManager
+import io.github.homura251.webshortcuts.ui.theme.ThemePreferences
 import kotlinx.coroutines.sync.Mutex
 
 class WebShortcutsApplication : Application() {
@@ -25,4 +28,8 @@ class AppContainer(context: Context) {
     val shortcutPublisher = ShortcutPublisher(context, iconResolver)
     // Serializes files + metadata + cleanup, including concurrent editor/batch saves.
     val mutationMutex = Mutex()
+    val transferGate = TransferGate()
+    val themePreferences = ThemePreferences(context)
+    val transferManager = TransferManager(context, repository, iconStore, themePreferences,
+        shortcutPublisher, mutationMutex)
 }

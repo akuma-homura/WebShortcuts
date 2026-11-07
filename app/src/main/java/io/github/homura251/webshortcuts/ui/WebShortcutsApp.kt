@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
@@ -158,6 +159,7 @@ fun WebShortcutsApp(
     onClearRefreshSummary: () -> Unit = {},
     appearance: AppearancePreferences = AppearancePreferences(),
     onAppearanceChange: (AppearancePreferences) -> Unit = {},
+    onOpenTransfer: () -> Unit = {},
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
@@ -178,7 +180,7 @@ fun WebShortcutsApp(
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
                 actions = {
-                    IconButton(onClick = { showAppearance = true }, modifier = Modifier.testTag("open_appearance")) {
+                    IconButton(onClick = { showAppearance = true }, enabled = !state.transferBusy, modifier = Modifier.testTag("open_appearance")) {
                         Icon(Icons.Default.Palette, contentDescription = stringResource(R.string.appearance_title))
                     }
                     Box {
@@ -189,8 +191,15 @@ fun WebShortcutsApp(
                             DropdownMenuItem(
                                 text = { Text(stringResource(if (state.refreshing) R.string.refreshing_all else R.string.refresh_all)) },
                                 leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                                enabled = autoCount > 0 && !state.refreshing,
+                                enabled = autoCount > 0 && !state.refreshing && !state.transferBusy,
                                 onClick = { menuExpanded = false; onRefreshAll() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.transfer_title)) },
+                                leadingIcon = { Icon(Icons.Default.ImportExport, contentDescription = null) },
+                                enabled = !state.loading && state.error == null && !state.transferBusy,
+                                onClick = { menuExpanded = false; onOpenTransfer() },
+                                modifier = Modifier.testTag("open_transfer"),
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.about_menu)) },
@@ -205,7 +214,7 @@ fun WebShortcutsApp(
         floatingActionButton = {
             if (!state.loading && state.error == null && state.bookmarks.isNotEmpty()) {
                 ExtendedFloatingActionButton(
-                    onClick = onAdd,
+                    onClick = { if (!state.transferBusy) onAdd() },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text(stringResource(R.string.add_site)) },
                 )
@@ -214,7 +223,7 @@ fun WebShortcutsApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(isRefreshing = state.refreshing,
-            onRefresh = { if (!state.loading && state.error == null && autoCount > 0) onRefreshAll() },
+            onRefresh = { if (!state.loading && state.error == null && autoCount > 0 && !state.transferBusy) onRefreshAll() },
             modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
             BookmarkCollection(
                 state = state, iconResolver = iconResolver, layoutMode = appearance.layoutMode,

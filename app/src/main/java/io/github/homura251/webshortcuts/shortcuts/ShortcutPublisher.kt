@@ -53,6 +53,28 @@ class ShortcutPublisher(
         }
     }
 
+    /** Reconcile existing entries only; importing on a new device never pins icons automatically. */
+    suspend fun reconcileAfterImport(before: List<BookmarkItem>, after: List<BookmarkItem>): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val retained = after.map { it.id }.toSet()
+            val removed = before.map { it.id }.filterNot(retained::contains)
+            if (removed.isNotEmpty()) {
+                ShortcutManagerCompat.disableShortcuts(context, removed, "此收藏已被替换，请在 WebShortcuts 中重新添加")
+                ShortcutManagerCompat.removeDynamicShortcuts(context, removed)
+            }
+            val previous = before.associateBy { it.id }
+            val pinned = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED).map { it.id }.toSet()
+            for (item in after.filter { it.id in pinned && previous[it.id] != it }) {
+                if (ShortcutManagerCompat.isRateLimitingActive(context)) return@withContext false
+                val shortcut = build(item)
+                ShortcutManagerCompat.enableShortcuts(context, listOf(shortcut))
+                if (!ShortcutManagerCompat.updateShortcuts(context, listOf(shortcut))) return@withContext false
+            }
+            true
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { false }
+    }
+
     /** Existing desktop entries become unavailable instead of opening a deleted/stale URL. */
     fun disable(id: String) {
         try {

@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -82,6 +83,36 @@ class RefreshViewModelTest {
         assertTrue(vm.state.value.refreshMessages.getValue(original.id).contains("保留原图"))
         val bitmap = application.container.iconStore.read(unchanged.autoImagePath)!!
         try { assertEquals(Color.RED, bitmap.getPixel(256, 256)) } finally { bitmap.recycle() }
+    }
+
+    @Test fun fetchStartedBeforeImportCannotOverwriteARestoredMatchingIdUrlAndVersion() = runBlocking {
+        val requested = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val image = png(Color.GREEN)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = when (request.path) {
+                "/restore-race" -> html("/icon.png")
+                "/icon.png" -> {
+                    requested.countDown()
+                    if (release.await(5, TimeUnit.SECONDS)) imageResponse(image) else MockResponse().setResponseCode(503)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val original = seed("/restore-race")
+        val vm = createViewModel()
+        vm.refresh(original)
+        try {
+            assertTrue(withContext(Dispatchers.IO) { requested.await(5, TimeUnit.SECONDS) })
+            val gate = application.container.transferGate
+            val lease = gate.begin()!!
+            val restored = original.copy(title = "Restored", sourceUrl = "https://restored.test/icon.png")
+            application.container.mutationMutex.withLock { application.container.repository.replaceAll(listOf(restored)) }
+            gate.end(lease)
+            release.countDown()
+            withTimeout(5000) { vm.state.first { original.id !in it.refreshingIds } }
+            assertEquals(restored, application.container.repository.find(original.id))
+        } finally { release.countDown() }
     }
 
     @Test fun repeatedClicksShareOneRequestAndRowFeedbackTracksTheActualWork() = runBlocking {

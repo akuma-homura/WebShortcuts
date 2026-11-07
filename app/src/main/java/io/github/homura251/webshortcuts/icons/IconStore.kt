@@ -12,6 +12,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
+import java.util.UUID
 
 /** Private, versioned PNG files. Metadata stores relative paths only, never image bytes. */
 class IconStore(context: Context) {
@@ -43,6 +45,31 @@ class IconStore(context: Context) {
 
     suspend fun readOriginal(path: String?): Bitmap? = readImage(path, original = true)
 
+    /** AtomicFile recovery and bounded reads also apply when taking a backup snapshot. */
+    suspend fun exportBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
+        val file = resolve(path) ?: return@withContext null
+        mutex.withLock {
+            if (!atomicFamilyIsLocal(file)) return@withLock null
+            runCatching {
+                val original = path.startsWith("icons/original/")
+                val bytes = AtomicFile(file).openRead().use {
+                    IconPolicy.readBounded(it, if (original) IconProcessor.MAX_EDITABLE_BYTES else IconPolicy.MAX_IMAGE_BYTES)
+                }
+                StoredIconBytes.validate(bytes, original, path.substringAfterLast('.'))
+                bytes
+            }.getOrNull()
+        }
+    }
+
+    /** Fresh names ensure a failed import never overwrites a currently referenced image. */
+    suspend fun restoreBytes(pathHint: String, bytes: ByteArray): String = withContext(Dispatchers.IO) {
+        require(resolve(pathHint) != null) { "备份图像路径无效" }
+        val original = pathHint.startsWith("icons/original/")
+        StoredIconBytes.validate(bytes, original, pathHint.substringAfterLast('.'))
+        val relative = "${pathHint.substringBeforeLast('/')}/import_${UUID.randomUUID()}.${pathHint.substringAfterLast('.')}"
+        mutex.withLock { writeAtomically(relative) { it.write(bytes) } }
+    }
+
     private suspend fun readImage(path: String?, original: Boolean): Bitmap? = withContext(Dispatchers.IO) {
         if (path == null || path.startsWith("icons/original/") != original) return@withContext null
         val file = resolve(path) ?: return@withContext null
@@ -67,14 +94,18 @@ class IconStore(context: Context) {
         }
     }
 
-    private fun write(relative: String, bitmap: Bitmap): String {
+    private fun write(relative: String, bitmap: Bitmap): String = writeAtomically(relative) {
+        if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) throw IOException("Could not encode icon.")
+    }
+
+    private fun writeAtomically(relative: String, action: (OutputStream) -> Unit): String {
         val file = resolve(relative) ?: throw IOException("Invalid icon path.")
         if (!atomicFamilyIsLocal(file)) throw IOException("Invalid icon path.")
         if (!file.parentFile!!.isDirectory && !file.parentFile!!.mkdirs()) throw IOException("Could not create icon directory.")
         val atomic = AtomicFile(file)
         val stream = atomic.startWrite()
         try {
-            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw IOException("Could not encode icon.")
+            action(stream)
             atomic.finishWrite(stream)
         } catch (failure: Exception) {
             atomic.failWrite(stream)

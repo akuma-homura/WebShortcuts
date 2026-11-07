@@ -61,6 +61,19 @@ class BookmarkRepository(context: Context) {
         }
     }
 
+    suspend fun snapshot(): List<BookmarkItem> = withContext(Dispatchers.IO) {
+        mutex.withLock { ensureAvailable(); mutableBookmarks.value.toList() }
+    }
+
+    /** Caller holds the app mutation mutex while staging images and committing the collection. */
+    suspend fun replaceAll(items: List<BookmarkItem>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            ensureAvailable()
+            val normalized = items.map { it.copy(title = it.title.trim(), url = UrlNormalizer.normalize(it.url)) }
+            writeToDisk(normalized)
+        }
+    }
+
     private fun ensureAvailable() {
         if (!attemptedLoad) readFromDisk()
         mutableLoadError.value?.let { throw IOException(it) }
