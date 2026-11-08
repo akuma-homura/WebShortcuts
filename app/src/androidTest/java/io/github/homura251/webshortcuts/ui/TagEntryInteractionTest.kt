@@ -1,14 +1,17 @@
 package io.github.homura251.webshortcuts.ui
 
-import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
+import kotlinx.coroutines.awaitCancellation
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -114,20 +117,20 @@ class TagEntryInteractionTest {
     @Test fun chineseCompositionIsNotSubmittedUntilCommitted() {
         val sheet = mutableStateOf(TagEditorUiState(setOf("one")))
         val added = mutableListOf<String>()
-        lateinit var view: View
-        editor(sheet, added, onView = { view = it })
+        val connection = AtomicReference<InputConnection>()
+        editor(sheet, added, onConnection = connection::set)
         compose.onNodeWithTag("new_draft_tag").performClick()
-        var connection: InputConnection? = null
-        compose.runOnIdle {
-            connection = view.onCreateInputConnection(EditorInfo())
-            assertNotNull(connection)
-            assertTrue(connection!!.setComposingText("zhong", 1))
-        }
-        compose.onNodeWithTag("new_draft_tag").performImeAction()
+        compose.waitUntil(5000) { connection.get() != null }
+        compose.runOnIdle { assertTrue(connection.get().setComposingText("zhong", 1)) }
+        compose.onNodeWithTag("apply_tags").assertIsNotEnabled()
+        compose.runOnIdle { assertTrue(connection.get().performEditorAction(EditorInfo.IME_ACTION_DONE)) }
+        compose.waitForIdle()
         assertTrue(added.isEmpty())
         compose.onNodeWithTag("apply_tags").assertIsNotEnabled()
-        compose.runOnIdle { assertTrue(connection!!.commitText("中", 1)) }
-        compose.onNodeWithTag("new_draft_tag").performImeAction()
+        compose.runOnIdle { assertTrue(connection.get().commitText("中", 1)) }
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue(connection.get().performEditorAction(EditorInfo.IME_ACTION_DONE)) }
+        compose.waitForIdle()
         assertEquals(listOf("中"), added)
     }
 
@@ -198,18 +201,30 @@ class TagEntryInteractionTest {
         assertEquals("long-0", opened)
     }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     private fun editor(sheet: MutableState<TagEditorUiState>, added: MutableList<String>, fontScale: Float = 1f,
-        onApply: () -> Unit = {}, onView: (View) -> Unit = {}) {
+        onApply: () -> Unit = {}, onConnection: ((InputConnection) -> Unit)? = null) {
         compose.setContent { WebShortcutsTheme(dynamicColor = false) {
-            val view = LocalView.current
-            SideEffect { onView(view) }
-            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
-                Column(Modifier.requiredSize(320.dp, 480.dp)) {
-                    TagEditorContent(tags, sheet.value, {}, {}, { raw ->
-                        added += raw
-                        sheet.value = sheet.value.copy(newNames = sheet.value.newNames + raw, pendingName = "")
-                    }, onApply, onPendingChange = { sheet.value = sheet.value.copy(pendingName = it) })
+            val content: @Composable () -> Unit = {
+                CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
+                    Column(Modifier.requiredSize(320.dp, 480.dp)) {
+                        TagEditorContent(tags, sheet.value, {}, {}, { raw ->
+                            added += raw
+                            sheet.value = sheet.value.copy(newNames = sheet.value.newNames + raw, pendingName = "")
+                        }, onApply, onPendingChange = { sheet.value = sheet.value.copy(pendingName = it) })
+                    }
                 }
+            }
+            if (onConnection == null) content()
+            else {
+                // Own the test IME session so the OS cannot finish composition between assertions.
+                val interceptor = remember(onConnection) {
+                    PlatformTextInputInterceptor { request, _ ->
+                        onConnection(request.createInputConnection(EditorInfo()))
+                        awaitCancellation()
+                    }
+                }
+                InterceptPlatformTextInput(interceptor, content)
             }
         } }
     }
