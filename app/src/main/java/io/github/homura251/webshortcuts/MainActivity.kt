@@ -89,16 +89,21 @@ class MainActivity : ComponentActivity() {
                     onCropApply = viewModel::applyCustomCrop,
                     onClearRefreshSummary = viewModel::clearRefreshSummary,
                     appearance = appearance,
-                    onAppearanceChange = { if (!container.transferGate.busy.value) themePreferences.update(it) },
+                    onAppearanceChange = { if (!container.transferGate.busy.value && state.reorder == null) themePreferences.update(it) },
+                    sortActions = io.github.homura251.webshortcuts.ui.SortActions(
+                        change = viewModel::setSorting, begin = viewModel::beginReorder, move = viewModel::moveReorder,
+                        save = viewModel::saveReorder, cancel = viewModel::cancelReorder),
                     tagActions = TagActions(
                         filter = viewModel::setTagFilter, toggleFilter = viewModel::toggleTagFilter,
                         select = viewModel::select, selectAll = viewModel::selectAll, cancelSelection = viewModel::cancelSelection,
                         edit = viewModel::editTags, editEditor = viewModel::editEditorTags, editBatch = viewModel::editBatchTags,
                         toggle = viewModel::toggleEditorTag, toggleNew = viewModel::toggleNewTag,
+                        removeSelected = viewModel::removeEditorTag,
                         createDraft = viewModel::addDraftTag, apply = viewModel::applyTagEditor, dismiss = viewModel::dismissTagEditor,
+                        pendingNameChange = viewModel::setPendingTagName, catalogNameChange = viewModel::setCatalogTagName,
                         create = viewModel::createTag, rename = viewModel::renameTag, delete = viewModel::deleteTag,
                     ),
-                    onOpenTransfer = { if (!transferViewModel.open()) viewModel.notify("已有导入导出操作正在进行") },
+                    onOpenTransfer = { if (state.reorder == null && !transferViewModel.open()) viewModel.notify("已有导入导出操作正在进行") },
                 )
                 if (transfer.visible) TransferSheet(transfer, onDismiss = transferViewModel::close,
                     onChooseImport = {

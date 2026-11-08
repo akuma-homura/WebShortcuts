@@ -1,0 +1,35 @@
+<resources>
+    <string name="sort_bookmarks">收藏排序</string>
+    <string name="sort_tags">标签排序</string>
+    <string name="sort_current">排序：%1$s</string>
+    <string name="sort_created">添加时间</string>
+    <string name="sort_updated">更新时间</string>
+    <string name="sort_name">名称</string>
+    <string name="sort_count">收藏数量</string>
+    <string name="sort_manual">手动排序</string>
+    <string name="sort_ascending">升序</string>
+    <string name="sort_descending">降序</string>
+    <string name="sort_newest">最近添加</string>
+    <string name="sort_oldest">最早添加</string>
+    <string name="sort_recent_update">最近更新</string>
+    <string name="sort_old_update">最早更新</string>
+    <string name="sort_name_ascending">名称升序</string>
+    <string name="sort_name_descending">名称降序</string>
+    <string name="sort_count_descending">收藏多到少</string>
+    <string name="sort_count_ascending">收藏少到多</string>
+    <string name="sort_local_hint">排序方式保存在本机，手动顺序始终保留。</string>
+    <string name="sort_updated_hint">包含内容编辑、标签调整和成功的图标刷新。</string>
+    <string name="sort_count_hint">按全部收藏统计数量。</string>
+    <string name="organize_order">整理顺序</string>
+    <string name="organize_bookmarks">整理收藏</string>
+    <string name="organize_tags">整理标签</string>
+    <string name="organize_hint">拖动手柄，或从菜单上移、下移。完成后保存。</string>
+    <string name="organize_filtered_hint">正在整理筛选结果，共用全局手动顺序；隐藏项目保持原位置。</string>
+    <string name="organize_saving">保存中</string>
+    <string name="organize_done">完成</string>
+    <string name="organize_drag">拖动 %1$s</string>
+    <string name="organize_actions">调整 %1$s 的位置</string>
+    <string name="organize_up">上移</string>
+    <string name="organize_down">下移</string>
+    <string name="organize_position">第 %1$d 项，共 %2$d 项</string>
+</resources>

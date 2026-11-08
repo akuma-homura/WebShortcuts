@@ -122,6 +122,8 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.LibraryOrdering
+import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.BookmarkTag
 import io.github.homura251.webshortcuts.icons.CropRect
@@ -166,12 +168,19 @@ fun WebShortcutsApp(
     onAppearanceChange: (AppearancePreferences) -> Unit = {},
     onOpenTransfer: () -> Unit = {},
     tagActions: TagActions = TagActions(),
+    sortActions: SortActions = SortActions(),
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showAppearance by rememberSaveable { mutableStateOf(false) }
     var showTagFilter by rememberSaveable { mutableStateOf(false) }
     var showTagManager by rememberSaveable { mutableStateOf(false) }
+    var showSorting by rememberSaveable { mutableStateOf<String?>(null) }
+    var sortQuery by rememberSaveable { mutableStateOf("") }
+    val locale = LocalConfiguration.current.locales[0]
+    val orderedTags = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
+    }
     BackHandler(state.selectionMode && state.tagEditor == null) { tagActions.cancelSelection() }
     var deleteTarget by remember { mutableStateOf<BookmarkItem?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -209,13 +218,13 @@ fun WebShortcutsApp(
                                 DropdownMenuItem(
                                     text = { Text(stringResource(if (state.refreshing) R.string.refreshing_all else R.string.refresh_all)) },
                                     leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                                    enabled = autoCount > 0 && !state.refreshing && !state.transferBusy,
+                                    enabled = autoCount > 0 && !state.refreshing && !state.transferBusy && state.reorder == null,
                                     onClick = { menuExpanded = false; onRefreshAll() },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.transfer_title)) },
                                     leadingIcon = { Icon(Icons.Default.ImportExport, contentDescription = null) },
-                                    enabled = !state.loading && state.error == null && !state.transferBusy && !state.tagSaving,
+                                    enabled = !state.loading && state.error == null && !state.transferBusy && !state.tagSaving && state.reorder == null,
                                     onClick = { menuExpanded = false; onOpenTransfer() },
                                     modifier = Modifier.testTag("open_transfer"),
                                 )
@@ -235,7 +244,7 @@ fun WebShortcutsApp(
             )
         },
         floatingActionButton = {
-            if (!state.loading && state.error == null && state.bookmarks.isNotEmpty() && !state.selectionMode) {
+            if (!state.loading && state.error == null && state.bookmarks.isNotEmpty() && !state.selectionMode && state.reorder == null) {
                 ExtendedFloatingActionButton(
                     onClick = { if (!state.transferBusy) onAdd() },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -246,7 +255,7 @@ fun WebShortcutsApp(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(isRefreshing = state.refreshing,
-            onRefresh = { if (!state.loading && state.error == null && autoCount > 0 && !state.transferBusy && !state.selectionMode) onRefreshAll() },
+            onRefresh = { if (!state.loading && state.error == null && autoCount > 0 && !state.transferBusy && !state.selectionMode && state.reorder == null) onRefreshAll() },
             modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
             BookmarkCollection(
                 state = state, iconResolver = iconResolver, layoutMode = appearance.layoutMode,
@@ -256,6 +265,7 @@ fun WebShortcutsApp(
                 onUpdateShortcut = onUpdateShortcut, onDelete = { deleteTarget = it },
                 onClearRefreshSummary = onClearRefreshSummary,
                 tagActions = tagActions, onShowTagFilter = { showTagFilter = true },
+                onShowSorting = { sortQuery = ""; showSorting = OrderTarget.BOOKMARKS.name },
             )
         }
     }
@@ -276,14 +286,17 @@ fun WebShortcutsApp(
             onSave = onSave,
             onCenterCropChange = onCenterCropChange,
             onCropApply = onCropApply,
-            tags = state.tags, onEditTags = tagActions.editEditor,
+            tags = orderedTags, onEditTags = tagActions.editEditor,
         )
     }
     if (showTagFilter && !state.selectionMode) TagPanel(stringResource(R.string.filter_tags), { showTagFilter = false }) {
         TagFilterContent(state, tagActions.filter)
     }
-    if (showTagManager) TagPanel(stringResource(R.string.manage_tags), { showTagManager = false }, !state.tagSaving) {
-        TagManagerContent(state, tagActions.create, tagActions.rename, tagActions.delete)
+    if (showTagManager) TagPanel(stringResource(R.string.manage_tags), {
+        if (!state.tagSaving) { tagActions.catalogNameChange(""); showTagManager = false }
+    }, !state.tagSaving) {
+        TagManagerContent(state, tagActions.create, tagActions.rename, tagActions.delete,
+            onShowSorting = { sortQuery = it; showSorting = OrderTarget.TAGS.name }, onNewNameChange = tagActions.catalogNameChange)
     }
     state.tagEditor?.let { sheet ->
         val title = stringResource(when (sheet.mode) {
@@ -292,9 +305,14 @@ fun WebShortcutsApp(
             TagEditMode.REMOVE -> R.string.remove_tags
         })
         TagPanel(title, tagActions.dismiss, !sheet.saving) {
-            TagEditorContent(state.tags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply)
+            TagEditorContent(orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply,
+                onPendingChange = tagActions.pendingNameChange, onRemoveSelected = tagActions.removeSelected)
         }
     }
+    showSorting?.let { target ->
+        SortingSheet(state, OrderTarget.valueOf(target), sortQuery, { showSorting = null }, sortActions)
+    }
+    if (state.reorder != null) ReorderDialog(state, sortActions)
     deleteTarget?.let { bookmark ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },

@@ -57,6 +57,9 @@ class TransferViewModelTest {
         first.setMode(ImportMode.REPLACE)
         val snapshot = SavedStateHandle(saved.keys().associateWith { saved.get<Any?>(it) })
         owner.clear()
+        // A real process restart has no old coroutine/lease. Let the simulated owner finish
+        // cancellation before constructing the replacement in the same application instance.
+        withTimeout(5000) { application.container.transferGate.busy.first { !it } }
         val (restored, _) = vm(snapshot)
         await(restored, TransferPhase.PREVIEW)
         assertEquals(ImportMode.REPLACE, restored.state.value.mode)

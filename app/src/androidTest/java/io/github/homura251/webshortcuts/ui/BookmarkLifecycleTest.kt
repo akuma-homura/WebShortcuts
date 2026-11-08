@@ -11,6 +11,10 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso
+import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
+import androidx.test.espresso.action.ViewActions.pressBack
+import androidx.test.espresso.matcher.RootMatchers.isDialog
+import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.MainViewModel
@@ -84,8 +88,9 @@ class BookmarkLifecycleTest {
 
         // Send a real system Back event to the full-screen dialog after closing the IME.
         // Cancelling the discard prompt must keep both draft fields and leave disk unchanged.
-        Espresso.closeSoftKeyboard()
-        Espresso.pressBack()
+        // The Activity underneath the editor cannot take focus while its dialog is open.
+        Espresso.onView(isRoot()).inRoot(isDialog()).perform(closeSoftKeyboard())
+        Espresso.onView(isRoot()).inRoot(isDialog()).perform(pressBack())
         compose.onNodeWithText(context.getString(R.string.discard_title)).assertIsDisplayed()
         assertPersisted(created.id, originalTitle, originalUrl)
         compose.onNodeWithText(context.getString(R.string.keep_editing)).performClick()

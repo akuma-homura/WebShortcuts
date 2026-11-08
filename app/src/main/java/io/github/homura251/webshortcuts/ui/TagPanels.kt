@@ -1,54 +1,32 @@
 package io.github.homura251.webshortcuts.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
-import io.github.homura251.webshortcuts.data.BookmarkTag
-import io.github.homura251.webshortcuts.data.LibraryTags
-import io.github.homura251.webshortcuts.data.TagFilter
+import io.github.homura251.webshortcuts.data.*
 
 data class TagActions(
     val filter: (TagFilter) -> Unit = {},
@@ -60,8 +38,11 @@ data class TagActions(
     val editEditor: () -> Unit = {},
     val editBatch: (Boolean) -> Unit = {},
     val toggle: (String) -> Unit = {},
+    val removeSelected: (String) -> Unit = {},
     val toggleNew: (String) -> Unit = {},
     val createDraft: (String) -> Unit = {},
+    val pendingNameChange: (String) -> Unit = {},
+    val catalogNameChange: (String) -> Unit = {},
     val apply: () -> Unit = {},
     val dismiss: () -> Unit = {},
     val create: (String) -> Unit = {},
@@ -78,9 +59,9 @@ internal fun TagPanel(title: String, onDismiss: () -> Unit, canDismiss: Boolean 
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
             confirmValueChange = { dismissAllowed || it != androidx.compose.material3.SheetValue.Hidden })) {
         Column(Modifier.fillMaxWidth().heightIn(max = availableHeight * .85f)
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = onDismiss, enabled = canDismiss) {
                     Icon(Icons.Default.Close, stringResource(R.string.close))
                 }
@@ -91,71 +72,83 @@ internal fun TagPanel(title: String, onDismiss: () -> Unit, canDismiss: Boolean 
 }
 
 @Composable
-internal fun TagFilterContent(state: HomeUiState, onChange: (TagFilter) -> Unit) {
+internal fun ColumnScope.TagFilterContent(state: HomeUiState, onChange: (TagFilter) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_tags)) },
-        singleLine = true, modifier = Modifier.fillMaxWidth().testTag("filter_tag_search"))
+    val locale = LocalConfiguration.current.locales[0]
+    val ordered = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
+    }
+    val counts = remember(state.bookmarks) { LibraryOrdering.tagCounts(state.bookmarks) }
+    TagSearch(query, { query = it }, "filter_tag_search")
     Text(stringResource(R.string.tag_filter_hint), style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
-    LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        item { TagChoice(stringResource(R.string.all_bookmarks), !state.tagFilter.active, state.bookmarks.size,
+    LazyVerticalGrid(tagColumns(), Modifier.fillMaxWidth().weight(1f, fill = false).testTag("filter_tag_list"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        item { CompactTagChoice(stringResource(R.string.all_bookmarks), !state.tagFilter.active, state.bookmarks.size,
             "filter_all") { onChange(TagFilter()) } }
-        item { TagChoice(stringResource(R.string.untagged), state.tagFilter.untagged,
+        item { CompactTagChoice(stringResource(R.string.untagged), state.tagFilter.untagged,
             state.bookmarks.count { it.tagIds.isEmpty() }, "filter_untagged") { onChange(TagFilter(untagged = true)) } }
-        items(state.tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
-            TagChoice(tag.name, tag.id in state.tagFilter.ids,
-                state.bookmarks.count { tag.id in it.tagIds }, "filter_tag_${tag.id}") { onChange(state.tagFilter.toggle(tag.id)) }
+        gridItems(ordered.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
+            CompactTagChoice(tag.name, tag.id in state.tagFilter.ids, counts[tag.id] ?: 0,
+                "filter_tag_${tag.id}") { onChange(state.tagFilter.toggle(tag.id)) }
         }
         if (state.tags.none { it.name.contains(query.trim(), true) }) item {
-            Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 @Composable
-private fun TagChoice(name: String, selected: Boolean, count: Int?, key: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(selected, enabled = enabled, role = Role.Checkbox,
-        onValueChange = { onClick() }).testTag(key), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(selected, onCheckedChange = null, enabled = enabled)
-        Text(name, Modifier.weight(1f).padding(vertical = 8.dp), style = MaterialTheme.typography.bodyLarge)
-        if (count != null) Text(count.toString(), Modifier.padding(start = 8.dp, end = 8.dp),
-            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+private fun tagColumns(): GridCells = if (LocalDensity.current.fontScale >= 1.5f) GridCells.Fixed(1) else GridCells.Adaptive(120.dp)
+
+@Composable
+private fun TagSearch(query: String, onChange: (String) -> Unit, key: String, enabled: Boolean = true, modifier: Modifier = Modifier) {
+    TagSearchInput(query, onChange, modifier.fillMaxWidth().testTag(key), busy = !enabled)
 }
 
 @Composable
 internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEditorUiState, onToggle: (String) -> Unit,
-                              onToggleNew: (String) -> Unit, onCreate: (String) -> Unit, onApply: () -> Unit) {
-    var query by rememberSaveable(state.targetIds.sorted().joinToString(), state.forEditor, state.mode) { mutableStateOf("") }
+    onToggleNew: (String) -> Unit, onCreate: (String) -> Unit, onApply: () -> Unit, onPendingChange: (String) -> Unit = {},
+    onRemoveSelected: (String) -> Unit = {}) {
+    val query = state.pendingName
+    var composing by remember(state.targetIds, state.mode, state.forEditor) { mutableStateOf(false) }
     val removing = state.mode == TagEditMode.REMOVE
     Text(stringResource(when {
         removing -> R.string.remove_tags_hint
         state.forEditor -> R.string.edit_editor_tags_hint
         else -> R.string.edit_tags_hint
-    }),
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_tags)) },
-            enabled = !state.saving, singleLine = true, modifier = Modifier.weight(1f).testTag("edit_tag_search"))
-        if (!removing) IconButton(onClick = { onCreate(query); if (runCatching { LibraryTags.name(query) }.isSuccess) query = "" },
-            enabled = !state.saving && query.isNotBlank(), modifier = Modifier.testTag("create_draft_tag")) {
-            Icon(Icons.Default.Add, stringResource(R.string.create_tag))
-        }
+    }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    TagSearchInput(query, onPendingChange, Modifier.fillMaxWidth().testTag("edit_tag_search"),
+        busy = state.saving, error = state.error != null,
+        onAdd = if (removing) null else onCreate, addKey = "create_draft_tag", onComposingChange = { composing = it })
+    if (!removing && query.isNotBlank()) {
+        val existing = tags.any { LibraryTags.key(it.name) == LibraryTags.key(query.trim()) } ||
+            state.newNames.any { LibraryTags.key(it) == LibraryTags.key(query.trim()) }
+        Text(stringResource(if (existing) R.string.tag_select_on_save else R.string.tag_add_on_save, query.trim()),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("tag_pending_save_hint"))
     }
     if (state.error != null) Text(state.error, color = MaterialTheme.colorScheme.error,
-        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("tag_error"))
-    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("edit_tag_list")) {
-        items(tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
-            TagChoice(tag.name, tag.id in state.selectedIds, null, "edit_tag_${tag.id}", !state.saving) { onToggle(tag.id) }
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tag_error"))
+    LazyVerticalGrid(tagColumns(), Modifier.fillMaxWidth().weight(1f, fill = false).testTag("edit_tag_list"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        gridItems(tags.filter { it.id in state.selectedIds || it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
+            CompactTagChoice(tag.name, tag.id in state.selectedIds, null, "edit_tag_${tag.id}", !state.saving,
+                onRemove = if (tag.id in state.selectedIds) ({ onRemoveSelected(tag.id) }) else null) { onToggle(tag.id) }
         }
-        items(state.newNames.filter { it.contains(query.trim(), true) }, key = { "new:$it" }) { name ->
-            TagChoice(stringResource(R.string.draft_tag_name, name), true, null, "draft_tag_$name", !state.saving) { onToggleNew(name) }
+        // Pending names remain visible even while filtering the catalog.
+        gridItems(state.newNames, key = { "new:$it" }) { name ->
+            CompactTagChoice(stringResource(R.string.draft_tag_name, name), true, null, "draft_tag_$name", !state.saving,
+                onRemove = { onToggleNew(name) }) { onToggleNew(name) }
         }
         if (tags.isEmpty() && state.newNames.isEmpty()) item {
-            Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+        } else if (state.newNames.isEmpty() && tags.none { it.id in state.selectedIds || it.name.contains(query.trim(), true) }) item {
+            Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
         }
     }
-    Button(onClick = onApply, enabled = !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("apply_tags")) {
+    Button(onClick = onApply, enabled = !state.saving && !composing,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("apply_tags")) {
         Text(stringResource(when {
             state.saving -> R.string.saving_tags
             state.forEditor -> R.string.apply_editor_tags
@@ -165,35 +158,37 @@ internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEdi
 }
 
 @Composable
-internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, onRename: (String, String) -> Unit, onDelete: (String) -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
+internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit,
+    onRename: (String, String) -> Unit, onDelete: (String) -> Unit, onShowSorting: (String) -> Unit = {},
+    onNewNameChange: (String) -> Unit = {}) {
+    val query = state.newTagName
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
     var renameName by rememberSaveable { mutableStateOf("") }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var validationError by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(state.tags) {
-        if (state.tags.any { LibraryTags.key(it.name) == LibraryTags.key(query.trim()) }) query = ""
+    val locale = LocalConfiguration.current.locales[0]
+    val ordered = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
     }
+    val counts = remember(state.bookmarks) { LibraryOrdering.tagCounts(state.bookmarks) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(query, { query = it; validationError = null }, label = { Text(stringResource(R.string.search_or_create_tag)) },
-            modifier = Modifier.weight(1f).testTag("manage_tag_name"), enabled = !state.tagSaving, singleLine = true)
-        IconButton(onClick = {
-            val name = runCatching { LibraryTags.name(query) }
-            validationError = name.exceptionOrNull()?.message
-            if (name.isSuccess) onCreate(name.getOrThrow())
-        }, enabled = !state.tagSaving && query.isNotBlank(), modifier = Modifier.testTag("create_tag")) {
-            Icon(Icons.Default.Add, stringResource(R.string.create_tag))
+        TagSearchInput(query, onNewNameChange, Modifier.weight(1f).testTag("manage_tag_search"),
+            busy = state.tagSaving || state.transferBusy || state.reorder != null, error = state.tagError != null,
+            onAdd = onCreate, addKey = "create_tag")
+        IconButton(onClick = { onShowSorting(query) }, enabled = !state.tagSaving && !state.transferBusy && state.reorder == null,
+            modifier = Modifier.testTag("open_tag_sort")) {
+            Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.TAGS)))
         }
     }
-    (validationError ?: state.tagError)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-    LazyColumn(Modifier.fillMaxWidth().testTag("manage_tag_list")) {
-        items(state.tags.filter { it.name.contains(query.trim(), true) }.sortedBy { LibraryTags.key(it.name) }, key = { it.id }) { tag ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                    Text(tag.name, style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.tag_bookmark_count, state.bookmarks.count { tag.id in it.tagIds }),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+    (validationError ?: state.tagError)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("manage_tag_list")) {
+        items(ordered.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(tag.name, Modifier.weight(1f).padding(vertical = 4.dp), style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(stringResource(R.string.tag_bookmark_count, counts[tag.id] ?: 0), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(onClick = { renameId = tag.id; renameName = tag.name }, enabled = !state.tagSaving) {
                     Icon(Icons.Default.Edit, stringResource(R.string.rename_tag_name, tag.name))
                 }
@@ -202,7 +197,10 @@ internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, o
                 }
             }
         }
-        if (state.tags.isEmpty()) item { Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 16.dp)) }
+        if (state.tags.isEmpty()) item { Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall) }
+        else if (ordered.none { it.name.contains(query.trim(), true) }) item {
+            Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+        }
     }
     if (renameId != null) AlertDialog(onDismissRequest = { renameId = null },
         title = { Text(stringResource(R.string.rename_tag)) }, text = {
@@ -224,22 +222,51 @@ internal fun TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit, o
 @Composable
 internal fun BookmarkTagRow(tags: List<BookmarkTag>, selected: Set<String>, onClick: (String) -> Unit, enabled: Boolean = true, onMoreClick: (() -> Unit)? = null) {
     var showAll by rememberSaveable { mutableStateOf(false) }
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val style = MaterialTheme.typography.labelMedium
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val visible = if (maxWidth >= 280.dp) 2 else 1
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            tags.take(visible).forEach { tag ->
-                FilterChip(selected = tag.id in selected, onClick = { onClick(tag.id) }, enabled = enabled,
-                    label = { Text(tag.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) },
-                    modifier = Modifier.weight(1f, fill = false).testTag("card_tag_${tag.id}"))
+        val gap = 4.dp
+        fun labelWidth(text: String) = with(density) { measurer.measure(AnnotatedString(text), style).size.width.toDp() }
+        val widths = mutableListOf<androidx.compose.ui.unit.Dp>()
+        var used = 0.dp
+        for (tag in tags) {
+            val width = (labelWidth(tag.name) + 16.dp).coerceAtLeast(48.dp).coerceAtMost(maxWidth)
+            if (widths.isNotEmpty() && used + gap + width > maxWidth) break
+            used += if (widths.isEmpty()) width else gap + width
+            widths += width
+        }
+        var overflowWidth = 0.dp
+        if (widths.size < tags.size) {
+            while (true) {
+                overflowWidth = (labelWidth("+${tags.size - widths.size}") + 24.dp).coerceAtLeast(48.dp).coerceAtMost(maxWidth)
+                if (used + (if (widths.isEmpty()) 0.dp else gap) + overflowWidth <= maxWidth) break
+                if (widths.size == 1 && maxWidth - gap - overflowWidth >= 48.dp) {
+                    widths[0] = maxWidth - gap - overflowWidth
+                    break
+                }
+                if (widths.isEmpty()) break
+                widths.removeAt(widths.lastIndex)
+                used = widths.fold(0.dp) { total, width -> if (total == 0.dp) width else total + gap + width }
             }
-            if (tags.size > visible) TextButton(onClick = { if (onMoreClick != null) onMoreClick() else showAll = true }, enabled = enabled,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("more_tags")) { Text("+${tags.size - visible}") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+            tags.take(widths.size).forEachIndexed { index, tag ->
+                Box(Modifier.width(widths[index])) {
+                    CompactTagChoice(tag.name, tag.id in selected, null, "card_tag_${tag.id}", enabled, fill = false) { onClick(tag.id) }
+                }
+            }
+            if (tags.size > widths.size) TextButton(onClick = { if (onMoreClick != null) onMoreClick() else showAll = true }, enabled = enabled,
+                modifier = Modifier.width(overflowWidth).heightIn(min = 48.dp).testTag("more_tags"),
+                contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("+${tags.size - widths.size}", style = style, maxLines = 1)
+            }
         }
     }
     if (showAll) TagPanel(stringResource(R.string.bookmark_tags), { showAll = false }) {
         LazyColumn {
             items(tags, key = { it.id }) { tag ->
-                TagChoice(tag.name, tag.id in selected, null, "all_card_tag_${tag.id}") { onClick(tag.id); showAll = false }
+                CompactTagChoice(tag.name, tag.id in selected, null, "all_card_tag_${tag.id}") { onClick(tag.id); showAll = false }
             }
         }
     }

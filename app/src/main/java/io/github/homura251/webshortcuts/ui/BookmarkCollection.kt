@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -65,7 +67,8 @@ import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
-import io.github.homura251.webshortcuts.data.LibraryTags
+import io.github.homura251.webshortcuts.data.LibraryOrdering
+import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.data.TagFilter
 import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.ui.theme.LayoutMode
@@ -88,9 +91,14 @@ internal fun BookmarkCollection(
     onClearRefreshSummary: () -> Unit,
     tagActions: TagActions = TagActions(),
     onShowTagFilter: () -> Unit = {},
+    onShowSorting: () -> Unit = {},
 ) {
-    val filtered = remember(state.bookmarks, state.tags, state.query, state.tagFilter) {
-        LibraryTags.filter(state.bookmarks, state.tags, state.query, state.tagFilter)
+    val locale = LocalConfiguration.current.locales[0]
+    val filtered = remember(state.bookmarks, state.tags, state.query, state.tagFilter, state.sorting, locale) {
+        LibraryOrdering.bookmarks(LibrarySnapshot(state.bookmarks, state.tags), state.query, state.tagFilter, state.sorting, locale)
+    }
+    val orderedTags = remember(state.bookmarks, state.tags, state.sorting, locale) {
+        LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
     }
     val autoCount = state.bookmarks.count { it.selectedIconSource == IconSourceMode.AUTO }
     val grid = layoutMode == LayoutMode.GRID
@@ -113,7 +121,11 @@ internal fun BookmarkCollection(
                             filtered.size), Icons.Default.Language)
                         if (state.query.isBlank() && !state.tagFilter.active) CountBadge(stringResource(R.string.auto_count, autoCount), Icons.Default.Sync)
                     }
-                    FilledTonalIconButton(onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) },
+                    IconButton(onClick = onShowSorting, enabled = !state.selectionMode && !state.transferBusy && !state.tagSaving && state.reorder == null,
+                        modifier = Modifier.testTag("open_bookmark_sort")) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.BOOKMARKS)))
+                    }
+                    FilledTonalIconButton(onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) }, enabled = state.reorder == null,
                         modifier = Modifier.testTag("layout_toggle")) {
                         Icon(if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
                             contentDescription = stringResource(if (grid) R.string.show_list else R.string.show_grid))
@@ -144,12 +156,12 @@ internal fun BookmarkCollection(
                     }
                 }
                 if (state.tagFilter.active) item(key = "tag_filters", span = { GridItemSpan(maxLineSpan) }) {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (state.tagFilter.untagged) FilterChip(true, { tagActions.filter(TagFilter()) },
-                            label = { Text(stringResource(R.string.untagged)) }, enabled = !state.selectionMode,
+                            label = { Text(stringResource(R.string.untagged), style = MaterialTheme.typography.labelMedium) }, enabled = !state.selectionMode,
                             modifier = Modifier.testTag("selected_untagged"))
-                        state.tags.filter { it.id in state.tagFilter.ids }.forEach { tag ->
-                            FilterChip(true, { tagActions.toggleFilter(tag.id) }, label = { Text(tag.name, maxLines = 1) },
+                        orderedTags.filter { it.id in state.tagFilter.ids }.forEach { tag ->
+                            FilterChip(true, { tagActions.toggleFilter(tag.id) }, label = { Text(tag.name, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
                                 trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }, enabled = !state.selectionMode,
                                 modifier = Modifier.testTag("selected_filter_${tag.id}"))
                         }
@@ -184,7 +196,7 @@ internal fun BookmarkCollection(
                         onOpen = { onOpen(bookmark) }, onPin = { onPin(bookmark) }, onEdit = { onEdit(bookmark) },
                         onRefresh = { onRefresh(bookmark) }, onUpdateShortcut = { onUpdateShortcut(bookmark) },
                         onDelete = { onDelete(bookmark) }, compact = columns > 1,
-                        tags = state.tags.filter { it.id in bookmark.tagIds }, selectedTags = state.tagFilter.ids,
+                        tags = orderedTags.filter { it.id in bookmark.tagIds }, selectedTags = state.tagFilter.ids,
                         onTagClick = tagActions.toggleFilter, onEditTags = { tagActions.edit(bookmark) },
                         onLongClick = { tagActions.select(bookmark) },
                         selectionMode = state.selectionMode, selected = bookmark.id in state.selectedIds,

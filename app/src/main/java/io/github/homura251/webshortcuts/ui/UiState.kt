@@ -5,6 +5,7 @@ import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.BookmarkTag
 import io.github.homura251.webshortcuts.data.TagFilter
+import io.github.homura251.webshortcuts.data.LibrarySortPreferences
 import io.github.homura251.webshortcuts.icons.CropRect
 
 data class HomeUiState(
@@ -27,6 +28,22 @@ data class HomeUiState(
     val tagEditor: TagEditorUiState? = null,
     val tagSaving: Boolean = false,
     val tagError: String? = null,
+    val newTagName: String = "",
+    val sorting: LibrarySortPreferences = LibrarySortPreferences(),
+    val reorder: ReorderUiState? = null,
+)
+
+enum class OrderTarget { BOOKMARKS, TAGS }
+
+data class ReorderUiState(
+    val target: OrderTarget,
+    val baseOrder: List<String>,
+    val orderedIds: List<String>,
+    val query: String = "",
+    val filter: TagFilter = TagFilter(),
+    val epoch: Long = 0,
+    val saving: Boolean = false,
+    val error: String? = null,
 )
 
 enum class TagEditMode { SET, ADD, REMOVE }
@@ -37,6 +54,7 @@ data class TagEditorUiState(
     val initialIds: Set<String> = emptySet(),
     val selectedIds: Set<String> = emptySet(),
     val newNames: List<String> = emptyList(),
+    val pendingName: String = "",
     val forEditor: Boolean = false,
     val saving: Boolean = false,
     val error: String? = null,

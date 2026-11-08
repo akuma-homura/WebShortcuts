@@ -3,6 +3,7 @@ package io.github.homura251.webshortcuts
 import android.app.Application
 import android.content.Context
 import io.github.homura251.webshortcuts.data.BookmarkRepository
+import io.github.homura251.webshortcuts.data.SortPreferences
 import io.github.homura251.webshortcuts.icons.IconImporter
 import io.github.homura251.webshortcuts.icons.IconProcessor
 import io.github.homura251.webshortcuts.icons.IconResolver
@@ -30,6 +31,7 @@ class AppContainer(context: Context) {
     val mutationMutex = Mutex()
     val transferGate = TransferGate()
     val themePreferences = ThemePreferences(context)
+    val sortPreferences = SortPreferences(context)
     val transferManager = TransferManager(context, repository, iconStore, themePreferences,
         shortcutPublisher, mutationMutex)
 }

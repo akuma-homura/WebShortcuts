@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Separate geometry keeps the window, four tiles and arrow legible when tinted. -->
+    <!-- Include the corner stroke when fitting the complete outline into the safe circle. -->
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.96" android:scaleY="0.96">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="2.2"
+        android:pathData="M41,26H67C73,26 77,30 77,36V72C77,78 73,82 67,82H41C35,82 31,78 31,72V36C31,30 35,26 41,26Z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M41,34H47Q50,34 50,37V43Q50,46 47,46H41Q38,46 38,43V37Q38,34 41,34Z
+            M61,34H67Q70,34 70,37V43Q70,46 67,46H61Q58,46 58,43V37Q58,34 61,34Z
+            M41,49H47Q50,49 50,52V58Q50,61 47,61H41Q38,61 38,58V52Q38,49 41,49Z
+            M61,49H67Q70,49 70,52V58Q70,61 67,61H61Q58,61 58,58V52Q58,49 61,49Z" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M32,73Q54,55 76,73Q73,83 64,83H44Q35,83 32,73Z
+            M54,65L61,72Q62,73 61,74Q60,75 59,74L56,71V79Q56,81 54,81Q52,81 52,79V71L49,74Q48,75 47,74Q46,73 47,72Z" />
+    </group>
+</vector>
