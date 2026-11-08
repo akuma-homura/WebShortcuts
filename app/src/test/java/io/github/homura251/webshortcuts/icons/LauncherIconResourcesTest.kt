@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
-import androidx.annotation.RequiresApi
 import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.R
 import kotlin.math.hypot
@@ -18,7 +17,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@RequiresApi(33)
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class LauncherIconResourcesTest {
@@ -26,7 +24,8 @@ class LauncherIconResourcesTest {
 
     @Test fun coloredAndThemedForegroundsFitTheSharedSafeCircle() {
         val icon = context.getDrawable(R.mipmap.ic_launcher) as AdaptiveIconDrawable
-        val layers = listOf("colored foreground" to icon.foreground, "monochrome" to checkNotNull(icon.monochrome))
+        val layers = listOf("colored foreground" to icon.foreground,
+            "monochrome" to checkNotNull(context.getDrawable(R.drawable.ic_launcher_monochrome)))
         layers.forEach { (name, drawable) ->
             val radius = radius(drawable, 1080)
             println("$name radius=${radius / 10}dp; safe radius=33dp")
