@@ -88,19 +88,19 @@ private val previewBookmarks = listOf(
 @Preview(name = "Tag manager", widthDp = 360, heightDp = 640, showBackground = true)
 @Composable fun TagManagerPreview() = TagPanelPreview {
     Text("标签管理", style = MaterialTheme.typography.titleMedium)
-    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, newTagName = "灵感"), {}, { _, _ -> }, {})
+    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags), {}, { _, _ -> }, {})
 }
 
 @Preview(name = "Tag manager dark", widthDp = 360, heightDp = 560, showBackground = true)
 @Composable fun TagManagerDarkPreview() = TagPanelPreview(dark = true) {
     Text("标签管理", style = MaterialTheme.typography.titleMedium)
-    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, newTagName = "灵感"), {}, { _, _ -> }, {})
+    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, newTagName = "工"), {}, { _, _ -> }, {})
 }
 
 @Preview(name = "Tag manager large font", widthDp = 320, heightDp = 640, fontScale = 2f, showBackground = true)
 @Composable fun TagManagerLargeFontPreview() = TagPanelPreview {
     Text("标签管理", style = MaterialTheme.typography.titleMedium)
-    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, newTagName = "灵感"), {}, { _, _ -> }, {})
+    TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags), {}, { _, _ -> }, {})
 }
 
 @Composable private fun TagPanelPreview(dark: Boolean = false, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {

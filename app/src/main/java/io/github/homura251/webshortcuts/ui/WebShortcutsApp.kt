@@ -306,7 +306,7 @@ fun WebShortcutsApp(
         })
         TagPanel(title, tagActions.dismiss, !sheet.saving) {
             TagEditorContent(orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply,
-                onPendingChange = tagActions.pendingNameChange)
+                onPendingChange = tagActions.pendingNameChange, onRemoveSelected = tagActions.removeSelected)
         }
     }
     showSorting?.let { target ->

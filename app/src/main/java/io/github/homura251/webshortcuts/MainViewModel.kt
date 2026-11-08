@@ -277,13 +277,20 @@ class MainViewModel(application: Application, private val savedState: SavedState
     fun toggleEditorTag(id: String) {
         val sheet = mutableState.value.tagEditor ?: return
         if (sheet.saving) return
-        publishTagEditor(sheet.copy(selectedIds = if (id in sheet.selectedIds) sheet.selectedIds - id else sheet.selectedIds + id, error = null))
+        publishTagEditor(sheet.copy(selectedIds = if (id in sheet.selectedIds) sheet.selectedIds - id else sheet.selectedIds + id,
+            pendingName = "", error = null))
+    }
+
+    fun removeEditorTag(id: String) {
+        val sheet = mutableState.value.tagEditor ?: return
+        if (sheet.saving) return
+        publishTagEditor(sheet.copy(selectedIds = sheet.selectedIds - id, pendingName = "", error = null))
     }
 
     fun toggleNewTag(name: String) {
         val sheet = mutableState.value.tagEditor ?: return
         if (sheet.saving) return
-        publishTagEditor(sheet.copy(newNames = sheet.newNames.filterNot { it == name }))
+        publishTagEditor(sheet.copy(newNames = sheet.newNames.filterNot { it == name }, pendingName = "", error = null))
     }
 
     fun addDraftTag(raw: String) {
@@ -296,7 +303,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun setPendingTagName(value: String) {
         val sheet = mutableState.value.tagEditor ?: return
-        if (sheet.saving || sheet.mode == TagEditMode.REMOVE) return
+        if (sheet.saving) return
         publishTagEditor(sheet.copy(pendingName = value.take(160), error = null))
     }
 

@@ -6,8 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Close
@@ -20,12 +18,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,6 +38,7 @@ data class TagActions(
     val editEditor: () -> Unit = {},
     val editBatch: (Boolean) -> Unit = {},
     val toggle: (String) -> Unit = {},
+    val removeSelected: (String) -> Unit = {},
     val toggleNew: (String) -> Unit = {},
     val createDraft: (String) -> Unit = {},
     val pendingNameChange: (String) -> Unit = {},
@@ -106,16 +103,14 @@ private fun tagColumns(): GridCells = if (LocalDensity.current.fontScale >= 1.5f
 
 @Composable
 private fun TagSearch(query: String, onChange: (String) -> Unit, key: String, enabled: Boolean = true, modifier: Modifier = Modifier) {
-    val focus = LocalFocusManager.current
-    OutlinedTextField(query, onChange, label = { Text(stringResource(R.string.search_tags)) }, enabled = enabled,
-        singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = modifier.fillMaxWidth().testTag(key),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }))
+    TagSearchInput(query, onChange, modifier.fillMaxWidth().testTag(key), busy = !enabled)
 }
 
 @Composable
 internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEditorUiState, onToggle: (String) -> Unit,
-    onToggleNew: (String) -> Unit, onCreate: (String) -> Unit, onApply: () -> Unit, onPendingChange: (String) -> Unit = {}) {
-    var query by rememberSaveable(state.targetIds.sorted().joinToString(), state.forEditor, state.mode) { mutableStateOf("") }
+    onToggleNew: (String) -> Unit, onCreate: (String) -> Unit, onApply: () -> Unit, onPendingChange: (String) -> Unit = {},
+    onRemoveSelected: (String) -> Unit = {}) {
+    val query = state.pendingName
     var composing by remember(state.targetIds, state.mode, state.forEditor) { mutableStateOf(false) }
     val removing = state.mode == TagEditMode.REMOVE
     Text(stringResource(when {
@@ -123,43 +118,42 @@ internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEdi
         state.forEditor -> R.string.edit_editor_tags_hint
         else -> R.string.edit_tags_hint
     }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    TagSearch(query, { query = it }, "edit_tag_search", !state.saving)
+    TagSearchInput(query, onPendingChange, Modifier.fillMaxWidth().testTag("edit_tag_search"),
+        busy = state.saving, error = state.error != null,
+        onAdd = if (removing) null else onCreate, addKey = "create_draft_tag", onComposingChange = { composing = it })
+    if (!removing && query.isNotBlank()) {
+        val existing = tags.any { LibraryTags.key(it.name) == LibraryTags.key(query.trim()) } ||
+            state.newNames.any { LibraryTags.key(it) == LibraryTags.key(query.trim()) }
+        Text(stringResource(if (existing) R.string.tag_select_on_save else R.string.tag_add_on_save, query.trim()),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("tag_pending_save_hint"))
+    }
     if (state.error != null) Text(state.error, color = MaterialTheme.colorScheme.error,
         style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tag_error"))
     LazyVerticalGrid(tagColumns(), Modifier.fillMaxWidth().weight(1f, fill = false).testTag("edit_tag_list"),
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        gridItems(tags.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
-            CompactTagChoice(tag.name, tag.id in state.selectedIds, null, "edit_tag_${tag.id}", !state.saving) { onToggle(tag.id) }
+        gridItems(tags.filter { it.id in state.selectedIds || it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
+            CompactTagChoice(tag.name, tag.id in state.selectedIds, null, "edit_tag_${tag.id}", !state.saving,
+                onRemove = if (tag.id in state.selectedIds) ({ onRemoveSelected(tag.id) }) else null) { onToggle(tag.id) }
         }
         // Pending names remain visible even while filtering the catalog.
         gridItems(state.newNames, key = { "new:$it" }) { name ->
-            CompactTagChoice(stringResource(R.string.draft_tag_name, name), true, null, "draft_tag_$name", !state.saving) { onToggleNew(name) }
+            CompactTagChoice(stringResource(R.string.draft_tag_name, name), true, null, "draft_tag_$name", !state.saving,
+                onRemove = { onToggleNew(name) }) { onToggleNew(name) }
         }
         if (tags.isEmpty() && state.newNames.isEmpty()) item {
             Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+        } else if (state.newNames.isEmpty() && tags.none { it.id in state.selectedIds || it.name.contains(query.trim(), true) }) item {
+            Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
         }
     }
-    val input: @Composable (Modifier) -> Unit = { modifier ->
-        TagNameInput(state.pendingName, onPendingChange, onCreate, modifier.testTag("new_draft_tag"),
-            busy = state.saving, error = state.error != null, onComposingChange = { composing = it })
-    }
-    val save: @Composable (Modifier) -> Unit = { modifier ->
-        Button(onClick = onApply, enabled = !state.saving && !composing,
-            modifier = modifier.heightIn(min = 48.dp).testTag("apply_tags")) {
-            Text(stringResource(when {
-                state.saving -> R.string.saving_tags
-                state.forEditor -> R.string.apply_editor_tags
-                else -> R.string.apply_tags
-            }))
-        }
-    }
-    if (removing) save(Modifier.fillMaxWidth())
-    else if (LocalDensity.current.fontScale >= 1.5f) {
-        input(Modifier.fillMaxWidth())
-        save(Modifier.fillMaxWidth())
-    } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        input(Modifier.weight(1f))
-        save(Modifier)
+    Button(onClick = onApply, enabled = !state.saving && !composing,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("apply_tags")) {
+        Text(stringResource(when {
+            state.saving -> R.string.saving_tags
+            state.forEditor -> R.string.apply_editor_tags
+            else -> R.string.apply_tags
+        }))
     }
 }
 
@@ -167,7 +161,7 @@ internal fun ColumnScope.TagEditorContent(tags: List<BookmarkTag>, state: TagEdi
 internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String) -> Unit,
     onRename: (String, String) -> Unit, onDelete: (String) -> Unit, onShowSorting: (String) -> Unit = {},
     onNewNameChange: (String) -> Unit = {}) {
-    var query by rememberSaveable { mutableStateOf("") }
+    val query = state.newTagName
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
     var renameName by rememberSaveable { mutableStateOf("") }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -178,7 +172,9 @@ internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String
     }
     val counts = remember(state.bookmarks) { LibraryOrdering.tagCounts(state.bookmarks) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        TagSearch(query, { query = it }, "manage_tag_search", !state.tagSaving, Modifier.weight(1f))
+        TagSearchInput(query, onNewNameChange, Modifier.weight(1f).testTag("manage_tag_search"),
+            busy = state.tagSaving || state.transferBusy || state.reorder != null, error = state.tagError != null,
+            onAdd = onCreate, addKey = "create_tag")
         IconButton(onClick = { onShowSorting(query) }, enabled = !state.tagSaving && !state.transferBusy && state.reorder == null,
             modifier = Modifier.testTag("open_tag_sort")) {
             Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.TAGS)))
@@ -206,8 +202,6 @@ internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String
             Text(stringResource(R.string.no_matching_tags), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
         }
     }
-    TagNameInput(state.newTagName, onNewNameChange, onCreate, Modifier.fillMaxWidth().testTag("manage_tag_name"),
-        busy = state.tagSaving || state.transferBusy || state.reorder != null, error = state.tagError != null)
     if (renameId != null) AlertDialog(onDismissRequest = { renameId = null },
         title = { Text(stringResource(R.string.rename_tag)) }, text = {
             OutlinedTextField(renameName, { renameName = it }, label = { Text(stringResource(R.string.tag_name)) }, singleLine = true)

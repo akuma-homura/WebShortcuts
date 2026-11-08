@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
                         select = viewModel::select, selectAll = viewModel::selectAll, cancelSelection = viewModel::cancelSelection,
                         edit = viewModel::editTags, editEditor = viewModel::editEditorTags, editBatch = viewModel::editBatchTags,
                         toggle = viewModel::toggleEditorTag, toggleNew = viewModel::toggleNewTag,
+                        removeSelected = viewModel::removeEditorTag,
                         createDraft = viewModel::addDraftTag, apply = viewModel::applyTagEditor, dismiss = viewModel::dismissTagEditor,
                         pendingNameChange = viewModel::setPendingTagName, catalogNameChange = viewModel::setCatalogTagName,
                         create = viewModel::createTag, rename = viewModel::renameTag, delete = viewModel::deleteTag,

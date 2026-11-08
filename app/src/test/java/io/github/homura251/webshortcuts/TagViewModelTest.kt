@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.data.*
+import io.github.homura251.webshortcuts.ui.TagEditMode
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -200,7 +201,7 @@ class TagViewModelTest {
         assertTrue(repo.library.value.tags.any { it.name == "Pending" })
     }
 
-    @Test fun savingWithoutEnterAddsThePendingNameAndPreservesOtherFields() = runBlocking {
+    @Test fun savingWithoutPlusAddsThePendingNameAndPreservesOtherFields() = runBlocking {
         seed()
         val vm = viewModel()
         vm.editTags(item)
@@ -288,7 +289,7 @@ class TagViewModelTest {
         assertEquals(3, repo.library.value.tags.size)
     }
 
-    @Test fun catalogEnterClearsOnlySuccessfulInputAndFailedOrDuplicateNamesRemainEditable() = runBlocking {
+    @Test fun catalogAddClearsOnlySuccessfulInputAndFailedOrDuplicateNamesRemainEditable() = runBlocking {
         seed()
         val vm = viewModel()
         vm.setCatalogTagName("Pending")
@@ -308,6 +309,51 @@ class TagViewModelTest {
         assertEquals("pending", vm.state.value.newTagName)
         assertNotNull(vm.state.value.tagError)
         assertEquals(4, repo.library.value.tags.size)
+    }
+
+    @Test fun removingASelectionIsIdempotentAndOnlyChangesTheCurrentBookmarkOnSave() = runBlocking {
+        val other = item.copy(id = "two", title = "Other")
+        repo.replaceAll(LibrarySnapshot(listOf(item, other), listOf(work, docs, extra)))
+        val vm = viewModel()
+        vm.editTags(item); vm.setPendingTagName("Work")
+        vm.removeEditorTag(work.id); vm.removeEditorTag(work.id)
+        assertEquals("", vm.state.value.tagEditor!!.pendingName)
+        assertTrue(vm.state.value.tagEditor!!.selectedIds.isEmpty())
+        assertEquals(item, repo.find(item.id))
+        vm.applyTagEditor()
+        await { vm.state.value.tagEditor == null && !vm.state.value.tagSaving }
+        assertTrue(repo.find(item.id)!!.tagIds.isEmpty())
+        assertEquals(other, repo.find(other.id))
+        assertEquals(listOf(work, docs, extra), repo.library.value.tags)
+    }
+
+    @Test fun removingADraftClearsInputAndCannotRecreateItOnSave() = runBlocking {
+        seed()
+        val vm = viewModel()
+        vm.editTags(item); vm.addDraftTag("Pending"); vm.setPendingTagName("pending")
+        vm.toggleNewTag("Pending"); vm.toggleNewTag("Pending")
+        assertTrue(vm.state.value.tagEditor!!.newNames.isEmpty())
+        assertEquals("", vm.state.value.tagEditor!!.pendingName)
+        vm.applyTagEditor()
+        await { vm.state.value.tagEditor == null && !vm.state.value.tagSaving }
+        assertEquals(item, repo.find(item.id))
+        assertEquals(3, repo.library.value.tags.size)
+    }
+
+    @Test fun removalPanelRestoresSearchButNeverTreatsItAsANewName() = runBlocking {
+        seed()
+        val saved = SavedStateHandle()
+        val vm = viewModel(saved)
+        vm.select(item); vm.editBatchTags(true); vm.toggleEditorTag(work.id)
+        val query = "x".repeat(41)
+        vm.setPendingTagName(query)
+        val restored = viewModel(SavedStateHandle(saved.keys().associateWith { saved.get<Any?>(it) }))
+        assertEquals(query, restored.state.value.tagEditor!!.pendingName)
+        assertEquals(TagEditMode.REMOVE, restored.state.value.tagEditor!!.mode)
+        restored.applyTagEditor()
+        await { restored.state.value.tagEditor == null && !restored.state.value.tagSaving }
+        assertTrue(repo.find(item.id)!!.tagIds.isEmpty())
+        assertEquals(3, repo.library.value.tags.size)
     }
 
     private suspend fun seed() = repo.replaceAll(LibrarySnapshot(listOf(item), listOf(work, docs, extra)))
