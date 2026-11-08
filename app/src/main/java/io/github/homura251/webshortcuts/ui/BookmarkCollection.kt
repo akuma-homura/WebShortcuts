@@ -156,12 +156,12 @@ internal fun BookmarkCollection(
                     }
                 }
                 if (state.tagFilter.active) item(key = "tag_filters", span = { GridItemSpan(maxLineSpan) }) {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (state.tagFilter.untagged) FilterChip(true, { tagActions.filter(TagFilter()) },
-                            label = { Text(stringResource(R.string.untagged)) }, enabled = !state.selectionMode,
+                            label = { Text(stringResource(R.string.untagged), style = MaterialTheme.typography.labelMedium) }, enabled = !state.selectionMode,
                             modifier = Modifier.testTag("selected_untagged"))
                         orderedTags.filter { it.id in state.tagFilter.ids }.forEach { tag ->
-                            FilterChip(true, { tagActions.toggleFilter(tag.id) }, label = { Text(tag.name, maxLines = 1) },
+                            FilterChip(true, { tagActions.toggleFilter(tag.id) }, label = { Text(tag.name, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
                                 trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }, enabled = !state.selectionMode,
                                 modifier = Modifier.testTag("selected_filter_${tag.id}"))
                         }

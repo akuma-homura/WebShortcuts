@@ -288,17 +288,28 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun addDraftTag(raw: String) {
         val sheet = mutableState.value.tagEditor ?: return
-        if (sheet.saving || sheet.mode == TagEditMode.REMOVE) return
+        if (sheet.saving || sheet.mode == TagEditMode.REMOVE || raw.isBlank()) return
         try {
-            val name = LibraryTags.name(raw)
-            val existing = repository.library.value.tags.firstOrNull { LibraryTags.key(it.name) == LibraryTags.key(name) }
-            val pending = (sheet.newNames + name).distinctBy(LibraryTags::key)
-            val unresolved = pending.count { value -> repository.library.value.tags.none { LibraryTags.key(it.name) == LibraryTags.key(value) } }
-            if (existing == null) require(repository.library.value.tags.size + unresolved <= LibraryTags.MAX_TAGS) { "标签数量已达到上限（2000）" }
-            val next = if (existing != null) sheet.copy(selectedIds = sheet.selectedIds + existing.id, error = null)
-                else sheet.copy(newNames = pending, error = null)
-            publishTagEditor(next)
-        } catch (error: IllegalArgumentException) { publishTagEditor(sheet.copy(error = error.message)) }
+            publishTagEditor(stageTag(sheet, raw))
+        } catch (error: IllegalArgumentException) { publishTagEditor(sheet.copy(pendingName = raw.take(160), error = error.message)) }
+    }
+
+    fun setPendingTagName(value: String) {
+        val sheet = mutableState.value.tagEditor ?: return
+        if (sheet.saving || sheet.mode == TagEditMode.REMOVE) return
+        publishTagEditor(sheet.copy(pendingName = value.take(160), error = null))
+    }
+
+    private fun stageTag(sheet: TagEditorUiState, raw: String): TagEditorUiState {
+        if (raw.isBlank() || sheet.mode == TagEditMode.REMOVE) return sheet
+        val name = LibraryTags.name(raw)
+        val existing = repository.library.value.tags.firstOrNull { LibraryTags.key(it.name) == LibraryTags.key(name) }
+        val pending = (sheet.newNames + name).distinctBy(LibraryTags::key)
+        val unresolved = pending.count { value -> repository.library.value.tags.none { LibraryTags.key(it.name) == LibraryTags.key(value) } }
+        if (existing == null) require(repository.library.value.tags.size + unresolved <= LibraryTags.MAX_TAGS) { "标签数量已达到上限（2000）" }
+        return if (existing != null) sheet.copy(selectedIds = sheet.selectedIds + existing.id,
+            newNames = sheet.newNames.filterNot { LibraryTags.key(it) == LibraryTags.key(name) }, pendingName = "", error = null)
+        else sheet.copy(newNames = pending, pendingName = "", error = null)
     }
 
     fun dismissTagEditor() {
@@ -308,8 +319,10 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun applyTagEditor() {
         val epoch = container.transferGate.epoch
-        val sheet = mutableState.value.tagEditor ?: return
-        if (sheet.saving || transferBlocked()) return
+        val before = mutableState.value.tagEditor ?: return
+        if (before.saving || transferBlocked()) return
+        val sheet = try { stageTag(before, before.pendingName) }
+            catch (error: IllegalArgumentException) { publishTagEditor(before.copy(error = error.message)); return }
         if (sheet.forEditor) {
             changeEditor { it.copy(tagIds = sheet.selectedIds, newTagNames = sheet.newNames, dirty = true) }
             publishTagEditor(null)
@@ -320,7 +333,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             TagEditMode.ADD -> TagChanges(addIds = sheet.selectedIds, newNames = sheet.newNames)
             TagEditMode.REMOVE -> TagChanges(removeIds = sheet.selectedIds)
         }
-        publishTagEditor(sheet.copy(saving = true, error = null))
+        publishTagEditor(before.copy(saving = true, error = null))
         mutableState.update { it.copy(tagSaving = true) }
         viewModelScope.launch {
             try {
@@ -334,23 +347,39 @@ class MainViewModel(application: Application, private val savedState: SavedState
                 notify("已更新 $count 条收藏的标签")
             } catch (error: Exception) {
                 rethrowCancellation(error)
-                publishTagEditor(sheet.copy(error = "标签未保存。${error.message.orEmpty().take(120)}"))
+                publishTagEditor(before.copy(error = "标签未保存。${error.message.orEmpty().take(120)}"))
                 mutableState.update { it.copy(tagSaving = false) }
             }
         }
     }
 
-    fun createTag(name: String) = mutateCatalog { repository.createTag(name); Unit }
+    fun setCatalogTagName(value: String) {
+        if (mutableState.value.tagSaving || transferBlocked()) return
+        updateCatalogTagName(value.take(160))
+    }
+
+    private fun updateCatalogTagName(value: String) {
+        savedState["tags.catalogInput"] = value
+        mutableState.update { it.copy(newTagName = value, tagError = null) }
+    }
+
+    fun createTag(name: String) {
+        if (name.isBlank()) return
+        mutateCatalog(onSuccess = {
+            if (mutableState.value.newTagName == name) updateCatalogTagName("")
+        }) { repository.createTag(name); Unit }
+    }
     fun renameTag(id: String, name: String) = mutateCatalog { repository.renameTag(id, name) }
     fun deleteTag(id: String) = mutateCatalog { repository.deleteTag(id) }
 
-    private fun mutateCatalog(block: suspend () -> Unit) {
+    private fun mutateCatalog(onSuccess: () -> Unit = {}, block: suspend () -> Unit) {
         val epoch = container.transferGate.epoch
         if (transferBlocked() || mutableState.value.tagSaving) return
         mutableState.update { it.copy(tagSaving = true, tagError = null) }
         viewModelScope.launch {
             try {
                 container.mutationMutex.withLock { container.transferGate.requireWritable(epoch); block() }
+                onSuccess()
                 notify("标签已保存")
             } catch (error: Exception) { rethrowCancellation(error); mutableState.update { it.copy(tagError = error.message ?: "标签保存失败，请重试") } }
             finally { mutableState.update { it.copy(tagSaving = false) } }
@@ -373,7 +402,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val selected = savedState.get<ArrayList<String>>("home.selected").orEmpty().intersect(library.bookmarks.map { it.id }.toSet())
         mutableState.update { it.copy(bookmarks = library.bookmarks, tags = library.tags,
             query = savedState["home.query"] ?: "", tagFilter = filter,
-            selectionMode = savedState["home.selecting"] ?: false, selectedIds = selected) }
+            selectionMode = savedState["home.selecting"] ?: false, selectedIds = selected,
+            newTagName = savedState["tags.catalogInput"] ?: "") }
         libraryUiRestored = true
         persistLibraryUi()
     }
@@ -386,6 +416,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             savedState["tags.initial"] = ArrayList(sheet.initialIds)
             savedState["tags.selected"] = ArrayList(sheet.selectedIds)
             savedState["tags.names"] = ArrayList(sheet.newNames)
+            savedState["tags.input"] = sheet.pendingName
             savedState["tags.editor"] = sheet.forEditor
         }
         mutableState.update { it.copy(tagEditor = sheet) }
@@ -402,7 +433,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
             mode = runCatching { TagEditMode.valueOf(savedState["tags.mode"] ?: "SET") }.getOrDefault(TagEditMode.SET),
             initialIds = savedState.get<ArrayList<String>>("tags.initial").orEmpty().intersect(known),
             selectedIds = savedState.get<ArrayList<String>>("tags.selected").orEmpty().intersect(known),
-            newNames = savedState.get<ArrayList<String>>("tags.names").orEmpty(), forEditor = forEditor))
+            newNames = savedState.get<ArrayList<String>>("tags.names").orEmpty(),
+            pendingName = savedState["tags.input"] ?: "", forEditor = forEditor))
     }
 
     fun add(url: String = "", title: String = "") {
@@ -1048,6 +1080,6 @@ class MainViewModel(application: Application, private val savedState: SavedState
     private companion object {
         val REORDER_KEYS = listOf("order.target", "order.base", "order.ids", "order.query", "order.tags", "order.untagged")
         val DRAFT_KEYS = listOf("draft.id", "draft.new", "draft.title", "draft.url", "draft.mode", "draft.dirty", "draft.custom", "draft.original", "draft.crop", "draft.tags", "draft.initialTags", "draft.newTags")
-        val TAG_SHEET_KEYS = listOf("tags.targets", "tags.mode", "tags.initial", "tags.selected", "tags.names", "tags.editor")
+        val TAG_SHEET_KEYS = listOf("tags.targets", "tags.mode", "tags.initial", "tags.selected", "tags.names", "tags.input", "tags.editor")
     }
 }

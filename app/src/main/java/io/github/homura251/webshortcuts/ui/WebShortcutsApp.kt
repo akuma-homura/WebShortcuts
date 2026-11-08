@@ -292,9 +292,11 @@ fun WebShortcutsApp(
     if (showTagFilter && !state.selectionMode) TagPanel(stringResource(R.string.filter_tags), { showTagFilter = false }) {
         TagFilterContent(state, tagActions.filter)
     }
-    if (showTagManager) TagPanel(stringResource(R.string.manage_tags), { showTagManager = false }, !state.tagSaving) {
+    if (showTagManager) TagPanel(stringResource(R.string.manage_tags), {
+        if (!state.tagSaving) { tagActions.catalogNameChange(""); showTagManager = false }
+    }, !state.tagSaving) {
         TagManagerContent(state, tagActions.create, tagActions.rename, tagActions.delete,
-            onShowSorting = { sortQuery = it; showSorting = OrderTarget.TAGS.name })
+            onShowSorting = { sortQuery = it; showSorting = OrderTarget.TAGS.name }, onNewNameChange = tagActions.catalogNameChange)
     }
     state.tagEditor?.let { sheet ->
         val title = stringResource(when (sheet.mode) {
@@ -303,7 +305,8 @@ fun WebShortcutsApp(
             TagEditMode.REMOVE -> R.string.remove_tags
         })
         TagPanel(title, tagActions.dismiss, !sheet.saving) {
-            TagEditorContent(orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply)
+            TagEditorContent(orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply,
+                onPendingChange = tagActions.pendingNameChange)
         }
     }
     showSorting?.let { target ->

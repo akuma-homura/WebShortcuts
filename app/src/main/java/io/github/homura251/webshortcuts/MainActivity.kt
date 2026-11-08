@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                         edit = viewModel::editTags, editEditor = viewModel::editEditorTags, editBatch = viewModel::editBatchTags,
                         toggle = viewModel::toggleEditorTag, toggleNew = viewModel::toggleNewTag,
                         createDraft = viewModel::addDraftTag, apply = viewModel::applyTagEditor, dismiss = viewModel::dismissTagEditor,
+                        pendingNameChange = viewModel::setPendingTagName, catalogNameChange = viewModel::setCatalogTagName,
                         create = viewModel::createTag, rename = viewModel::renameTag, delete = viewModel::deleteTag,
                     ),
                     onOpenTransfer = { if (state.reorder == null && !transferViewModel.open()) viewModel.notify("已有导入导出操作正在进行") },

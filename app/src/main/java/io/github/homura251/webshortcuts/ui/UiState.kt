@@ -28,6 +28,7 @@ data class HomeUiState(
     val tagEditor: TagEditorUiState? = null,
     val tagSaving: Boolean = false,
     val tagError: String? = null,
+    val newTagName: String = "",
     val sorting: LibrarySortPreferences = LibrarySortPreferences(),
     val reorder: ReorderUiState? = null,
 )
@@ -53,6 +54,7 @@ data class TagEditorUiState(
     val initialIds: Set<String> = emptySet(),
     val selectedIds: Set<String> = emptySet(),
     val newNames: List<String> = emptyList(),
+    val pendingName: String = "",
     val forEditor: Boolean = false,
     val saving: Boolean = false,
     val error: String? = null,
