@@ -14,6 +14,7 @@ WebShortcuts v1.4 使用 Kotlin、Jetpack Compose 和 Material 3。支持 Androi
 - **三种图标模式**：自动发现网站图标、系统 Photo Picker 导入图片、根据名称生成字母/汉字图标。模式显式切换，自定义图片不会被自动刷新覆盖。
 - **自由裁切**：拖动选区、调整四角、切换自由比例与 1:1，也可用尺寸/位置滑块精确调整；支持重置、取消和应用。保留私有原图和裁切参数，保存后仍可重新编辑，不会在已缩小的图标上反复裁切。
 - **预览与安全区**：圆形/圆角桌面遮罩、Full Canvas 完整画布、安全区蒙层与桌面可见边界；辅助线仅用于预览，不写入图片。
+- **自适应应用图标**：玻璃四宫格与向上箭头使用独立透明前景，彩色渐变背景铺满画布；主体放入 Android 共享安全区，适配圆形、圆角方形、超椭圆和水滴形，并提供独立的主题单色图标。
 - **自动图标**：解析 Web App Manifest、Apple Touch Icon、HTML 图标，并尝试根目录 `/apple-touch-icon.png`、`/apple-touch-icon-precomposed.png` 和 `/favicon.ico`；优先寻找 SVG 或 512 像素原图，按真实解码尺寸选择，不把放大的小 favicon 当作高清；支持 PNG、JPEG、WebP、安全 SVG 与 ICO 的 PNG/DIB 帧。
 - **刷新反馈**：首页下拉或菜单批量刷新，显示逐项状态、完成数量及可关闭的结果摘要；编辑器展示可复制的来源 URL 和最近成功获取时间。抓取成功与桌面同步待重试分别反馈，失败保留缓存和上次成功时间。
 - **可靠回退**：离线、解码失败或没有网站图标时显示生成图标；刷新失败保留可用缓存，模式继续保持 AUTO。
@@ -51,7 +52,7 @@ Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手�
 
 工具链固定为 AGP 8.13.2、Gradle 8.13、Kotlin 2.2.21、Compose BOM 2025.12.00。构建依赖从 Google Maven 和 Maven Central 获取。
 
-`app/src/debug/.../ui/SortingPreviews.kt` 提供排序设置、手动整理和大字体预览；`TagPreviews.kt` 提供标签列表、网格、批量整理、标签面板和大字体预览；`CompactUiPreviews.kt` 提供列表、网格、深色、图标编辑器、外观设置与 200% 字体预览。Android Studio 可直接渲染；安装 Android CLI 后也可运行 `android preview render :app --fqn=io.github.homura251.webshortcuts.ui.CompactUiPreviewsKt.CompactListPreview --component-tree`。这些预览仅使用本地演示数据。
+`app/src/debug/.../ui/SortingPreviews.kt` 提供排序设置、手动整理和大字体预览；`TagPreviews.kt` 提供标签列表、网格、批量整理、标签面板和大字体预览；`CompactUiPreviews.kt` 提供列表、网格、深色、图标编辑器、外观设置与 200% 字体预览；`LauncherIconPreviews.kt` 提供应用图标在四种桌面形状、浅深色和主题模式下的预览。Android Studio 可直接渲染；安装 Android CLI 后也可运行 `android preview render :app --fqn=io.github.homura251.webshortcuts.ui.LauncherIconPreviewsKt.LauncherIconLightPreview --component-tree`。应用图标资源与安全区约束见 [APP-ICON.md](docs/APP-ICON.md)。这些预览仅使用本地资源和演示数据。
 
 ## 使用方式
 
