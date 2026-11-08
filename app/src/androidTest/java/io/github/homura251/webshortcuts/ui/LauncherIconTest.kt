@@ -24,8 +24,8 @@ class LauncherIconTest {
         assertTrue("The installed application must expose an adaptive icon", normal is AdaptiveIconDrawable)
         val round = context.getDrawable(R.mipmap.ic_launcher_round) as AdaptiveIconDrawable
         listOf(normal as AdaptiveIconDrawable, round).forEach { icon ->
-            assertSafeForeground(icon.foreground)
-            if (Build.VERSION.SDK_INT >= 33) assertSafeForeground(checkNotNull(icon.monochrome))
+            assertSafeForeground(icon.foreground, "colored foreground")
+            if (Build.VERSION.SDK_INT >= 33) assertSafeForeground(checkNotNull(icon.monochrome), "monochrome")
             val background = drawLayer(icon.background)
             val pixels = IntArray(background.width * background.height)
             background.getPixels(pixels, 0, background.width, 0, 0, background.width, background.height)
@@ -48,7 +48,7 @@ class LauncherIconTest {
         drawable.draw(Canvas(it))
     }
 
-    private fun assertSafeForeground(drawable: Drawable) {
+    private fun assertSafeForeground(drawable: Drawable, label: String) {
         val bitmap = drawLayer(drawable)
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
@@ -61,8 +61,8 @@ class LauncherIconTest {
                 maxRadius = maxOf(maxRadius, hypot(index % bitmap.width - 539.5, index / bitmap.width - 539.5))
             }
         }
-        assertTrue("Foreground must contain visible artwork", visible > 5_000)
-        assertTrue("Artwork radius $maxRadius must fit the 66/108 safe circle", maxRadius <= 331.0)
+        assertTrue("$label must contain visible artwork", visible > 5_000)
+        assertTrue("$label radius $maxRadius must fit the 66/108 safe circle", maxRadius <= 331.0)
         bitmap.recycle()
     }
 }
