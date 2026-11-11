@@ -41,12 +41,16 @@ class ShortcutSourcesInteractionTest {
 
     @Test fun browserPickerChangesOnlyTheRequestedAccountProvider() {
         val choice = mutableStateOf<String?>("com.android.chrome")
+        val dark = mutableStateOf(false)
         var dismissed = false
         compose.setContent {
-            WebShortcutsTheme(dynamicColor = false) {
+            WebShortcutsTheme(darkTheme = dark.value, dynamicColor = false) {
                 BrowserPicker(choice.value, browsers, { choice.value = it }, { dismissed = true })
             }
         }
+        capture("browser_picker_sheet", "26_browser_picker_light.png")
+        compose.runOnIdle { dark.value = true }
+        capture("browser_picker_sheet", "27_browser_picker_dark.png")
         compose.onNodeWithTag("browser_com.chrome.beta").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("com.chrome.beta", choice.value); assertTrue(dismissed) }
     }

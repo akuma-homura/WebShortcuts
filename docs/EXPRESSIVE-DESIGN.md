@@ -16,7 +16,7 @@
 | --- | --- |
 | 页面与底层背景 | `surface` |
 | 常规内容卡片 | `surfaceContainerLow` + `onSurface` |
-| 连体设置项、次级内容容器 | 官方 `SegmentedListItem` 默认颜色 |
+| 连体设置项、次级内容容器 | 普通／禁用容器使用 `surfaceContainerLow`；内容与状态色继承官方 `segmentedColors` |
 | 弹窗 | `surfaceContainerHigh` |
 | 主要操作 | `primary` + `onPrimary` |
 | 已选内容、次级操作 | `secondaryContainer` + `onSecondaryContainer` |
@@ -28,7 +28,9 @@
 
 静态配色提供完整的明暗角色配对，不以一组任意浅色十六进制数模拟深色主题。字体保留系统字体与中日韩回退，使用 sp 和原生字体缩放。圆角、间距、最大内容宽度和最小触控区集中在 Theme 与组件层。
 
-依据：[Material 颜色角色](https://m3.material.io/styles/color/the-color-system/)、[Material 字体角色](https://m3.material.io/styles/typography/applying-type)、[MaterialExpressiveTheme API](https://developer.android.com/reference/kotlin/androidx/compose/material3/MaterialExpressiveTheme.composable)。
+连体列表所在页面与设置面板采用 `surface` 背景，三个 `Connected*Item` 封装和标签管理条目共用集中颜色规则，指定普通／禁用容器为 `surfaceContainerLow`，让首尾形状和行间间隙在明暗主题中均可辨识。选中态保留官方 `secondaryContainer` 及配套内容色，禁用内容色与交互动效也继承官方实现。
+
+依据：[Material 颜色角色](https://m3.material.io/styles/color/the-color-system/)、[Material 字体角色](https://m3.material.io/styles/typography/applying-type)、[MaterialExpressiveTheme API](https://developer.android.com/reference/kotlin/androidx/compose/material3/MaterialExpressiveTheme.composable)、[ListItemDefaults API](https://developer.android.com/reference/kotlin/androidx/compose/material3/ListItemDefaults)。
 
 ## 3. 组件选择
 

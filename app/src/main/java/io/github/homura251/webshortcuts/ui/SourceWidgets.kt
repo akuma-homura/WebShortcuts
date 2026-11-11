@@ -64,7 +64,7 @@ internal fun BrowserSection(packageName: String?, browsers: List<BrowserOption>,
 @Composable
 internal fun BrowserPicker(packageName: String?, browsers: List<BrowserOption>, onSelect: (String?) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        modifier = Modifier.testTag("browser_picker_sheet"), containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             SheetHeader(stringResource(R.string.browser_picker_title), onDismiss,

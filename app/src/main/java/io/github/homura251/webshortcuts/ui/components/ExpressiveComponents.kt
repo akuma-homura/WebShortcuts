@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -223,12 +224,19 @@ fun ConnectedGroup(modifier: Modifier = Modifier, content: @Composable ColumnSco
 @Composable
 fun connectedItemShape(index: Int, count: Int): Shape = ListItemDefaults.segmentedShapes(index, count).shape
 
+/** Keep connected-row boundaries visible against the shared surface background. */
+@Composable
+internal fun connectedListItemColors(): ListItemColors = ListItemDefaults.segmentedColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+)
+
 @Composable
 fun ConnectedActionItem(index: Int, count: Int, title: String, onClick: () -> Unit,
     modifier: Modifier = Modifier, supporting: String? = null, icon: ImageVector? = null,
     enabled: Boolean = true, trailingContent: (@Composable () -> Unit)? = null) {
     SegmentedListItem(onClick = onClick, shapes = ListItemDefaults.segmentedShapes(index, count),
-        modifier = modifier.fillMaxWidth(), enabled = enabled,
+        modifier = modifier.fillMaxWidth(), enabled = enabled, colors = connectedListItemColors(),
         leadingContent = icon?.let { { Icon(it, contentDescription = null) } },
         supportingContent = supporting?.let { { Text(it) } }, trailingContent = trailingContent) { Text(title) }
 }
@@ -237,7 +245,7 @@ fun ConnectedActionItem(index: Int, count: Int, title: String, onClick: () -> Un
 fun ConnectedChoiceItem(index: Int, count: Int, title: String, selected: Boolean, onClick: () -> Unit,
     modifier: Modifier = Modifier, supporting: String? = null, icon: ImageVector? = null, enabled: Boolean = true) {
     SegmentedListItem(selected = selected, onClick = onClick, shapes = ListItemDefaults.segmentedShapes(index, count),
-        modifier = modifier.fillMaxWidth(), enabled = enabled,
+        modifier = modifier.fillMaxWidth(), enabled = enabled, colors = connectedListItemColors(),
         leadingContent = icon?.let { { Icon(it, contentDescription = null) } },
         supportingContent = supporting?.let { { Text(it) } },
         trailingContent = { RadioButton(selected = selected, onClick = null, enabled = enabled) }) { Text(title) }
@@ -249,6 +257,7 @@ fun ConnectedSwitchItem(index: Int, count: Int, title: String, checked: Boolean,
     SegmentedListItem(checked = checked, onCheckedChange = onCheckedChange,
         shapes = ListItemDefaults.segmentedShapes(index, count),
         modifier = modifier.fillMaxWidth().semantics { role = Role.Switch }, enabled = enabled,
+        colors = connectedListItemColors(),
         leadingContent = icon?.let { { Icon(it, contentDescription = null) } },
         supportingContent = supporting?.let { { Text(it) } },
         trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) }) { Text(title) }

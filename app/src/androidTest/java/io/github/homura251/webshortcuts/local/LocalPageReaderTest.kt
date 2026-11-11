@@ -73,7 +73,8 @@ class LocalPageReaderTest {
                 assertPassiveReader("旅行手记 · 离线网页")
                 assertPageContains("即使没有网络")
                 assertPageContains("脚本未执行")
-                capture("24_local_html_reader.png").recycle()
+                // A loaded DOM/find result does not guarantee the WebView surface is on screen.
+                capture("24_local_html_reader.png", requiredColors = listOf(Color.rgb(204, 232, 220))).recycle()
             } finally {
                 observing.set(false)
                 server.close()
@@ -90,7 +91,8 @@ class LocalPageReaderTest {
         assertPassiveReader("MHTML 离线归档")
         assertPageContains("文字、图片和样式")
         assertPageContains("脚本未执行")
-        val rendered = capture("25_local_mhtml_reader.png")
+        val rendered = capture("25_local_mhtml_reader.png",
+            requiredColors = listOf(Color.rgb(241, 60, 138), Color.rgb(65, 105, 225)))
         try {
             // These opaque colors exist only in the embedded PNG and external archived CSS.
             // A missing/blocked resource cannot be mistaken for a successful title-only load.
@@ -171,10 +173,30 @@ class LocalPageReaderTest {
         return null
     }
 
-    private fun capture(name: String): Bitmap {
+    private fun capture(name: String, requiredColors: List<Int> = emptyList()): Bitmap {
+        scenario!!.onActivity { activity ->
+            // findAllAsync may reveal its final match. Start every capture from the document top.
+            findWebView(activity.window.decorView)?.scrollTo(0, 0)
+        }
         awaitRenderedFrame()
         compose.waitForIdle()
-        val screenshot = instrumentation.uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
+        var rendered: Bitmap? = null
+        try {
+            compose.waitUntil(10_000) {
+                val candidate = instrumentation.uiAutomation.takeScreenshot() ?: return@waitUntil false
+                if (requiredColors.all { countColor(candidate, it) > 256 }) {
+                    rendered = candidate
+                    true
+                } else {
+                    candidate.recycle()
+                    false
+                }
+            }
+        } catch (failure: Throwable) {
+            rendered?.recycle()
+            throw AssertionError("Local page pixels were not visible in the completed window: $name", failure)
+        }
+        val screenshot = checkNotNull(rendered)
         val directory = File(checkNotNull(application.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
         File(directory, name).outputStream().use { assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         return screenshot

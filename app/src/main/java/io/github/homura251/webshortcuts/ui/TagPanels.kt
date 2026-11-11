@@ -32,6 +32,7 @@ import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog as A
 import io.github.homura251.webshortcuts.ui.components.ExpressiveButton as Button
 import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
 import io.github.homura251.webshortcuts.ui.components.SheetHeader
+import io.github.homura251.webshortcuts.ui.components.connectedListItemColors
 import io.github.homura251.webshortcuts.ui.theme.AppSpacing
 
 data class TagActions(
@@ -188,6 +189,7 @@ internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
         itemsIndexed(filteredTags, key = { _, tag -> tag.id }) { index, tag ->
             SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, filteredTags.size),
+                colors = connectedListItemColors(),
                 supportingContent = { Text(stringResource(R.string.tag_bookmark_count, counts[tag.id] ?: 0)) },
                 trailingContent = {
                     Row {
