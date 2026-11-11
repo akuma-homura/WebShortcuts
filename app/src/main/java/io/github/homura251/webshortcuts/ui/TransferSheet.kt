@@ -17,12 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,7 +26,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,6 +42,20 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
+import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog as AlertDialog
+import io.github.homura251.webshortcuts.ui.components.ExpressiveButton as Button
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalButton as FilledTonalButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip as FilterChip
+import io.github.homura251.webshortcuts.ui.components.ConnectedActionItem
+import io.github.homura251.webshortcuts.ui.components.ConnectedGroup
+import io.github.homura251.webshortcuts.ui.components.ConnectedSwitchItem
+import io.github.homura251.webshortcuts.ui.components.ExpressiveLoading
+import io.github.homura251.webshortcuts.ui.components.SheetHeader
+import io.github.homura251.webshortcuts.ui.components.SectionHeader
+import io.github.homura251.webshortcuts.ui.components.TonalCard
+import io.github.homura251.webshortcuts.ui.components.TonalEmphasis
+import io.github.homura251.webshortcuts.ui.theme.AppSpacing
 import io.github.homura251.webshortcuts.transfer.ImportMode
 import io.github.homura251.webshortcuts.transfer.TransferFormat
 import io.github.homura251.webshortcuts.transfer.TransferPhase
@@ -64,7 +73,7 @@ fun TransferSheet(state: TransferUiState, onDismiss: () -> Unit, onChooseImport:
     ModalBottomSheet(onDismissRequest = { if (state.canDismiss) onDismiss() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
             confirmValueChange = { canDismiss }),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        containerColor = MaterialTheme.colorScheme.surface) {
         TransferContent(state, onDismiss, onChooseImport, onExport, onModeChange, onRestoreAppearance,
             onCommit, onRetry, onChooseDestination)
     }
@@ -78,15 +87,10 @@ internal fun TransferContent(state: TransferUiState, onDismiss: () -> Unit = {},
                              onRetry: () -> Unit = {}, onChooseDestination: () -> Unit = {}) {
     var confirmReplace by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("transfer_sheet").verticalScroll(rememberScrollState())
-        .navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.transfer_title), style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f).semantics { heading() })
-            IconButton(onClick = onDismiss, enabled = state.canDismiss, modifier = Modifier.testTag("close_transfer")) {
-                Icon(Icons.Default.Close, stringResource(R.string.close))
-            }
-        }
+        .navigationBarsPadding().padding(start = AppSpacing.page, end = AppSpacing.page, bottom = AppSpacing.section),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.related)) {
+        SheetHeader(stringResource(R.string.transfer_title), onDismiss, icon = Icons.Default.FileDownload,
+            dismissEnabled = state.canDismiss, dismissTag = "close_transfer")
         when (state.phase) {
             TransferPhase.IDLE -> {
                 SupportingText(stringResource(R.string.transfer_subtitle))
@@ -94,13 +98,14 @@ internal fun TransferContent(state: TransferUiState, onDismiss: () -> Unit = {},
                     Icon(Icons.Default.FileDownload, null, Modifier.padding(end = 8.dp).size(20.dp))
                     Text(stringResource(R.string.transfer_choose))
                 }
-                HorizontalDivider()
-                TransferExportOption(R.string.transfer_export_zip, R.string.transfer_zip_detail, "export_zip") { onExport(TransferFormat.BACKUP_ZIP) }
-                TransferExportOption(R.string.transfer_export_html, R.string.transfer_html_detail, "export_html") { onExport(TransferFormat.BOOKMARKS_HTML) }
+                ConnectedGroup {
+                    TransferExportOption(R.string.transfer_export_zip, R.string.transfer_zip_detail, "export_zip", 0) { onExport(TransferFormat.BACKUP_ZIP) }
+                    TransferExportOption(R.string.transfer_export_html, R.string.transfer_html_detail, "export_html", 1) { onExport(TransferFormat.BOOKMARKS_HTML) }
+                }
                 SupportingText(stringResource(R.string.transfer_backup_note))
             }
             TransferPhase.PREVIEW -> state.preview?.let { preview ->
-                Text(stringResource(R.string.transfer_preview_title), style = MaterialTheme.typography.titleMedium)
+                SectionHeader(stringResource(R.string.transfer_preview_title))
                 SupportingText(stringResource(if (preview.format == TransferFormat.BACKUP_ZIP) R.string.transfer_zip_format else R.string.transfer_html_format))
                 preview.exportedAt?.let { SupportingText(stringResource(R.string.transfer_exported_at,
                     DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it)))) }
@@ -124,11 +129,8 @@ internal fun TransferContent(state: TransferUiState, onDismiss: () -> Unit = {},
                     if (preview.tagCount == 0 && preview.localTagCount > 0) R.string.transfer_no_tags_replace else R.string.transfer_tags_replace))
                 if (state.mode == ImportMode.MERGE && preview.mergedTagCount > 2000) SupportingText(stringResource(R.string.transfer_tag_limit))
                 if (preview.hasAppearance) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = state.restoreAppearance, role = Role.Checkbox,
-                        onValueChange = onRestoreAppearance).testTag("restore_appearance"), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = state.restoreAppearance, onCheckedChange = null)
-                        Text(stringResource(R.string.transfer_restore_appearance), style = MaterialTheme.typography.bodyMedium)
-                    }
+                    ConnectedSwitchItem(index = 0, count = 1, title = stringResource(R.string.transfer_restore_appearance),
+                        checked = state.restoreAppearance, onCheckedChange = onRestoreAppearance, modifier = Modifier.testTag("restore_appearance"))
                 }
                 preview.warnings.forEach { SupportingText(it) }
                 if (!preview.canReplace) SupportingText(stringResource(R.string.transfer_empty_html))
@@ -148,10 +150,10 @@ internal fun TransferContent(state: TransferUiState, onDismiss: () -> Unit = {},
                 }
             }
             TransferPhase.RESULT, TransferPhase.ERROR -> {
-                if (state.phase == TransferPhase.RESULT) Text(stringResource(R.string.transfer_result), style = MaterialTheme.typography.titleMedium)
-                Text(state.message.orEmpty(), style = MaterialTheme.typography.bodyMedium,
-                    color = if (state.phase == TransferPhase.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.testTag("transfer_result"))
+                TonalCard(Modifier.fillMaxWidth(), emphasis = if (state.phase == TransferPhase.ERROR) TonalEmphasis.ERROR else TonalEmphasis.PRIMARY) {
+                    if (state.phase == TransferPhase.RESULT) SectionHeader(stringResource(R.string.transfer_result))
+                    Text(state.message.orEmpty(), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("transfer_result"))
+                }
                 state.warnings.forEach { SupportingText(it) }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.transfer_done)) }
@@ -160,7 +162,7 @@ internal fun TransferContent(state: TransferUiState, onDismiss: () -> Unit = {},
             }
             else -> {
                 val fraction = state.progress.fraction
-                if (fraction == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (fraction == null) ExpressiveLoading()
                 else LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 Text(state.progress.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("transfer_progress"))
                 if (state.phase == TransferPhase.COMMITTING) SupportingText(stringResource(R.string.transfer_committing))
@@ -189,12 +191,7 @@ private fun SupportingText(text: String) {
 }
 
 @Composable
-private fun TransferExportOption(title: Int, detail: Int, tag: String, onClick: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FilledTonalButton(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag)) {
-            Icon(Icons.Default.FileUpload, null, Modifier.padding(end = 8.dp).size(20.dp))
-            Text(stringResource(title))
-        }
-        SupportingText(stringResource(detail))
-    }
+private fun TransferExportOption(title: Int, detail: Int, tag: String, index: Int, onClick: () -> Unit) {
+    ConnectedActionItem(index, 2, stringResource(title), onClick, supporting = stringResource(detail),
+        icon = Icons.Default.FileUpload, modifier = Modifier.testTag(tag))
 }

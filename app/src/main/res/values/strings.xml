@@ -12,7 +12,7 @@
     <string name="refreshing_all">正在刷新自动图标…</string>
     <string name="about_title">关于 WebShortcuts</string>
     <string name="about_menu">关于与隐私</string>
-    <string name="about_body">一个轻巧的网站收藏夹。为每个网站选择独立图标，并创建桌面快捷方式。\n\n书签与图标保存在此设备的应用私有目录中；应用不包含云端同步或统计服务。自动获取图标时会直接访问你输入的网站及其图标资源。\n\n网站由支持 Custom Tabs 的浏览器打开，登录状态由浏览器管理。修改书签后，旧桌面快捷方式会读取最新的网址；图标刷新速度取决于桌面启动器。</string>
+    <string name="about_body">收藏网站与离线网页。为每个快捷方式选择独立图标、指定浏览器，并添加到桌面。\n\n书签、图标与导入的 HTML / MHTML 副本保存在此设备的应用私有目录中；应用不包含云端同步或统计服务。自动获取图标时会直接访问你输入的网站及其图标资源。\n\n在线网站使用所选浏览器的正常登录状态；指定浏览器不可用时会提示更换。离线查看器不连接网络，不运行网页脚本。修改收藏后，旧桌面快捷方式会读取最新的浏览器或本地文件；图标刷新速度取决于桌面启动器。</string>
     <string name="understood">知道了</string>
     <string name="loading_bookmarks">正在读取收藏…</string>
     <string name="empty_title">给常用网站一个专属入口</string>

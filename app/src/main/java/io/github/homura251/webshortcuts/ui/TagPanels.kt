@@ -3,6 +3,7 @@ package io.github.homura251.webshortcuts.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -27,6 +28,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.*
+import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog as AlertDialog
+import io.github.homura251.webshortcuts.ui.components.ExpressiveButton as Button
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
+import io.github.homura251.webshortcuts.ui.components.SheetHeader
+import io.github.homura251.webshortcuts.ui.theme.AppSpacing
 
 data class TagActions(
     val filter: (TagFilter) -> Unit = {},
@@ -55,17 +61,13 @@ data class TagActions(
 internal fun TagPanel(title: String, onDismiss: () -> Unit, canDismiss: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val dismissAllowed by rememberUpdatedState(canDismiss)
     val availableHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
-    ModalBottomSheet(onDismissRequest = { if (dismissAllowed) onDismiss() },
+    ModalBottomSheet(onDismissRequest = { if (dismissAllowed) onDismiss() }, containerColor = MaterialTheme.colorScheme.surface,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
             confirmValueChange = { dismissAllowed || it != androidx.compose.material3.SheetValue.Hidden })) {
         Column(Modifier.fillMaxWidth().heightIn(max = availableHeight * .85f)
-            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = onDismiss, enabled = canDismiss) {
-                    Icon(Icons.Default.Close, stringResource(R.string.close))
-                }
-            }
+            .navigationBarsPadding().padding(start = AppSpacing.page, end = AppSpacing.page, bottom = AppSpacing.content),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.related)) {
+            SheetHeader(title, onDismiss, dismissEnabled = canDismiss)
             content()
         }
     }
@@ -181,21 +183,22 @@ internal fun ColumnScope.TagManagerContent(state: HomeUiState, onCreate: (String
         }
     }
     (validationError ?: state.tagError)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("manage_tag_list")) {
-        items(ordered.filter { it.name.contains(query.trim(), true) }, key = { it.id }) { tag ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(tag.name, Modifier.weight(1f).padding(vertical = 4.dp), style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(stringResource(R.string.tag_bookmark_count, counts[tag.id] ?: 0), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = { renameId = tag.id; renameName = tag.name }, enabled = !state.tagSaving) {
-                    Icon(Icons.Default.Edit, stringResource(R.string.rename_tag_name, tag.name))
-                }
-                IconButton(onClick = { deleteId = tag.id }, enabled = !state.tagSaving) {
-                    Icon(Icons.Default.DeleteOutline, stringResource(R.string.delete_tag_name, tag.name))
-                }
-            }
+    val filteredTags = ordered.filter { it.name.contains(query.trim(), true) }
+    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("manage_tag_list"),
+        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+        itemsIndexed(filteredTags, key = { _, tag -> tag.id }) { index, tag ->
+            SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, filteredTags.size),
+                supportingContent = { Text(stringResource(R.string.tag_bookmark_count, counts[tag.id] ?: 0)) },
+                trailingContent = {
+                    Row {
+                        IconButton(onClick = { renameId = tag.id; renameName = tag.name }, enabled = !state.tagSaving) {
+                            Icon(Icons.Default.Edit, stringResource(R.string.rename_tag_name, tag.name))
+                        }
+                        IconButton(onClick = { deleteId = tag.id }, enabled = !state.tagSaving) {
+                            Icon(Icons.Default.DeleteOutline, stringResource(R.string.delete_tag_name, tag.name))
+                        }
+                    }
+                }) { Text(tag.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
         if (state.tags.isEmpty()) item { Text(stringResource(R.string.no_tags_yet), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall) }
         else if (ordered.none { it.name.contains(query.trim(), true) }) item {

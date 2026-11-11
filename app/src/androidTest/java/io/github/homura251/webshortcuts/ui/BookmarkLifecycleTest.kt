@@ -2,12 +2,15 @@ package io.github.homura251.webshortcuts.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso
@@ -78,6 +81,7 @@ class BookmarkLifecycleTest {
         compose.waitUntil(timeoutMillis = 10_000) {
             !viewModel.state.value.loading && viewModel.state.value.bookmarks.any { it.id == created.id }
         }
+        compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasText(originalTitle))
         compose.onNodeWithText(originalTitle).assertIsDisplayed()
         openMenu(originalTitle)
         compose.onNodeWithText(context.getString(R.string.edit_bookmark)).performClick()
@@ -161,7 +165,9 @@ class BookmarkLifecycleTest {
     }
 
     private fun openMenu(title: String) {
-        compose.onNodeWithContentDescription(context.getString(R.string.site_options, title)).performClick()
+        val description = context.getString(R.string.site_options, title)
+        compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasContentDescription(description))
+        compose.onNodeWithContentDescription(description).performClick()
     }
 
     private fun persisted(id: String): BookmarkItem? = runBlocking {

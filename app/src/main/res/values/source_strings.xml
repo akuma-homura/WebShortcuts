@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_local_page">导入本地网页</string>
+    <string name="browser_section">打开方式</string>
+    <string name="browser_section_hint">为这个快捷方式选择浏览器与登录状态</string>
+    <string name="browser_picker_title">选择浏览器</string>
+    <string name="browser_accounts_hint">在 Chrome、Chrome Beta、Firefox 等浏览器分别登录账号，再为不同快捷方式指定浏览器。相同浏览器的快捷方式共享该浏览器的登录状态。</string>
+    <string name="browser_automatic">自动选择浏览器</string>
+    <string name="browser_automatic_hint">优先 Chrome，其次使用可用的 Custom Tabs 浏览器</string>
+    <string name="browser_cct_hint">应用内打开 · 使用此浏览器的登录状态</string>
+    <string name="browser_external_hint">在此浏览器中打开 · 不支持 Custom Tabs</string>
+    <string name="browser_unavailable">此浏览器未安装或不可用，请重新选择</string>
+    <string name="browser_empty">暂未发现可用浏览器。安装后返回应用即可选择。</string>
+    <string name="local_document_title">离线网页</string>
+    <string name="local_document_ready">已保存到应用 · 可离线查看</string>
+    <string name="local_document_hint">支持 HTML、MHTML 和 MHT。HTML 中未包含的外部图片、样式不会离线下载；完整网页可导入 MHTML 存档。</string>
+    <string name="local_document_importing">正在导入网页…</string>
+    <string name="local_document_replace">更换文件</string>
+    <string name="source_all">全部</string>
+    <string name="source_web">在线网页</string>
+    <string name="source_local">本地网页</string>
+    <string name="source_offline_badge">离线</string>
+    <string name="home_collection_title">你的快捷方式</string>
+    <string name="home_collection_description">常用网站与离线网页，一处收藏</string>
+    <string name="home_local_count">%1$d 个离线网页</string>
+    <string name="empty_local_action_hint">也可以导入 HTML / MHTML 文件，离线阅读并添加到桌面。</string>
+</resources>

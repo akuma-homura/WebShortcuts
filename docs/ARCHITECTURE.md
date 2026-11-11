@@ -1,5 +1,16 @@
 # 架构与实现约束
 
+## v1.5：Expressive、多浏览器与本地网页
+
+- `BookmarkItem` 用 `sourceType` 区分 WEB、HTML、MHTML，在线记录保存可空的 `browserPackage`；本地记录的 `url` 为空，引用安全的私有 `localFileName` 和展示名。BookmarkCodec schema 5 迁移旧格式而不改变 UUID、标签、排序与图标。
+- `BrowserCatalog` 查询 HTTPS 处理器和 CCT 服务；`BrowserLauncher` 将 Intent 绑定到用户选择的包。显式选择失败只允许同包普通浏览器回退；自动模式才允许跨浏览器后备。Cookie 始终由浏览器管理。
+- `LocalPageStore` 从 SAF `content://` 读取，在 IO 线程限流复制、验证后原子重命名；每份最多 32 MiB。导入保留私有副本，编辑草稿保存其文件名，取消/替换产生的未引用文件采用受保护的清理策略。删除收藏后立即释放没有其他引用的已保存文件。
+- `LocalPageActivity` 不对外导出；桌面路由和应用入口只传书签 ID，读取当前元数据。HTML 使用仅拦截已选文档的 HTTPS 地址；MHTML 允许原生加载选定私有归档；关闭 JavaScript、内容 URI、通用文件访问与网络请求。链接交给确认对话框，未包含的资源不联网回补。
+- ZIP 封装版本 2（兼容读取 v1）包含 `pages/`，预检路径、类型、CRC、大小和文件完整性，恢复分配新文件名；提交失败只清理本次新增且无已提交引用的文件。浏览器 HTML 书签只支持在线链接并显示跳过计数。
+- 统一 `MaterialExpressiveTheme`、`MotionScheme.expressive()` 与 `ui/components`；业务页面通过 TonalCard、InteractiveTonalCard、ConnectedChoiceItem、ExpressiveButton 等组合。详见 [设计系统](EXPRESSIVE-DESIGN.md)。
+
+下文 v1.1–v1.4 的演进说明保留历史上下文；当前版本以以上 schema 5 / ZIP v2 为准。
+
 ## 数据与事务
 
 `BookmarkItem.id` 是不可变 UUID，同时作为桌面快捷方式 ID。`BookmarkRepository` 使用私有 `bookmarks.json`，通过 Android `AtomicFile` 写入。磁盘提交成功后才发布新的 `StateFlow`，文件损坏时保留原文件并阻止写入，不把读取失败当作空列表。

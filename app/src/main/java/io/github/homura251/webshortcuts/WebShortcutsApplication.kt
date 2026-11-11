@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import io.github.homura251.webshortcuts.data.BookmarkRepository
 import io.github.homura251.webshortcuts.data.SortPreferences
+import io.github.homura251.webshortcuts.local.LocalPageStore
 import io.github.homura251.webshortcuts.icons.IconImporter
 import io.github.homura251.webshortcuts.icons.IconProcessor
 import io.github.homura251.webshortcuts.icons.IconResolver
@@ -21,6 +22,7 @@ class WebShortcutsApplication : Application() {
 
 class AppContainer(context: Context) {
     val repository = BookmarkRepository(context)
+    val localPageStore = LocalPageStore(context)
     val iconProcessor = IconProcessor()
     val iconStore = IconStore(context)
     val iconResolver = IconResolver(context, iconStore, iconProcessor)

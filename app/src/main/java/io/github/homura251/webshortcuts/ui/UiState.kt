@@ -2,6 +2,8 @@ package io.github.homura251.webshortcuts.ui
 
 import android.graphics.Bitmap
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.BookmarkSourceType
+import io.github.homura251.webshortcuts.shortcuts.BrowserOption
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.BookmarkTag
 import io.github.homura251.webshortcuts.data.TagFilter
@@ -31,7 +33,12 @@ data class HomeUiState(
     val newTagName: String = "",
     val sorting: LibrarySortPreferences = LibrarySortPreferences(),
     val reorder: ReorderUiState? = null,
+    val browsers: List<BrowserOption> = emptyList(),
+    val importingLocal: Boolean = false,
+    val sourceFilter: SourceFilter = SourceFilter.ALL,
 )
+
+enum class SourceFilter { ALL, WEB, LOCAL }
 
 enum class OrderTarget { BOOKMARKS, TAGS }
 
@@ -44,6 +51,7 @@ data class ReorderUiState(
     val epoch: Long = 0,
     val saving: Boolean = false,
     val error: String? = null,
+    val sourceFilter: SourceFilter = SourceFilter.ALL,
 )
 
 enum class TagEditMode { SET, ADD, REMOVE }
@@ -85,4 +93,11 @@ data class EditorUiState(
     val tagIds: Set<String> = emptySet(),
     val initialTagIds: Set<String> = emptySet(),
     val newTagNames: List<String> = emptyList(),
-)
+    val browserPackage: String? = null,
+    val sourceType: BookmarkSourceType = BookmarkSourceType.WEB,
+    val localFileName: String? = null,
+    val localDisplayName: String? = null,
+    val importingFile: Boolean = false,
+) {
+    val isLocal: Boolean get() = sourceType != BookmarkSourceType.WEB
+}

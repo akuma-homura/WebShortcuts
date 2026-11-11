@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.IconProcessor
@@ -55,7 +56,7 @@ class WebShortcutsUiTest {
             HomeUiState(loading = false, editor = EditorUiState(id = "test", isNew = true)),
             onMode = { selected = it },
         )
-        compose.onNodeWithText("自定义").performClick()
+        compose.onNodeWithText("自定义").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(IconSourceMode.CUSTOM, selected) }
     }
 

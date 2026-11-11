@@ -76,7 +76,7 @@ class TagRepositoryTest {
         repo.load()
         assertEquals(legacy, metadata.readText())
         repo.createTag("Empty")
-        assertEquals(4, org.json.JSONObject(metadata.readText()).getInt("schemaVersion"))
+        assertEquals(BookmarkCodec.SCHEMA_VERSION, org.json.JSONObject(metadata.readText()).getInt("schemaVersion"))
         assertTrue(repo.find("one")!!.tagIds.isEmpty())
     }
 

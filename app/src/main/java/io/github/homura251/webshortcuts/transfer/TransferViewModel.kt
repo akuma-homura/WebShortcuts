@@ -178,7 +178,11 @@ class TransferViewModel(application: Application, private val saved: SavedStateH
                 runCatching { manager.discard(preparedToken) }
                 token = null
                 mutableState.update { it.copy(message = "已导出 ${result.itemCount} 条收藏。",
-                    warnings = if (result.missingImages > 0) listOf("${result.missingImages} 份图像不可读取，备份保留了收藏及可用图片") else emptyList()) }
+                    warnings = buildList {
+                        if (result.missingImages > 0) add("${result.missingImages} 份图像不可读取，备份保留了收藏及可用图片")
+                        if (result.skippedLocalFiles > 0) add("HTML 书签不包含 ${result.skippedLocalFiles} 个本地网页，请用 ZIP 完整备份保存离线文件")
+                        if (result.format == TransferFormat.BOOKMARKS_HTML) add("HTML 书签不保存浏览器选择；多账号设置请使用 ZIP 完整备份")
+                    }) }
                 setPhase(TransferPhase.RESULT)
             } catch (error: Exception) { handleFailure(error) }
         }

@@ -1,0 +1,38 @@
+From: <Saved by WebShortcuts test>
+Snapshot-Content-Location: https://offline.example/article
+Subject: Offline fixture
+MIME-Version: 1.0
+Content-Type: multipart/related; type="text/html"; boundary="----WebShortcutsOfflineFixture"
+
+------WebShortcutsOfflineFixture
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: base64
+Content-Location: https://offline.example/article
+
+PCFkb2N0eXBlIGh0bWw+PGh0bWwgbGFuZz0iemgtQ04iPjxoZWFkPjxtZXRhIGNoYXJzZXQ9InV0
+Zi04Ij48bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVudD0id2lkdGg9ZGV2aWNlLXdpZHRoLGlu
+aXRpYWwtc2NhbGU9MSI+PHRpdGxlPk1IVE1MIOemu+e6v+W9kuahozwvdGl0bGU+PGxpbmsgcmVs
+PSJzdHlsZXNoZWV0IiBocmVmPSJodHRwczovL29mZmxpbmUuZXhhbXBsZS9zdHlsZS5jc3MiPjwv
+aGVhZD48Ym9keT48bWFpbj48cD5BUkNISVZFRCBQQUdFPC9wPjxoMT7lrozmlbTnvZHpobXlvZLm
+oaM8L2gxPjxwIGlkPSJhcmNoaXZlLXRleHQiPk1IVE1MIOeahOaWh+Wtl+OAgeWbvueJh+WSjOag
+t+W8j+mDveadpeiHquS4gOS4quacrOWcsOaWh+S7tuOAgjwvcD48aW1nIGlkPSJhcmNoaXZlZC1p
+bWFnZSIgc3JjPSJodHRwczovL29mZmxpbmUuZXhhbXBsZS9sb2dvLnBuZyIgd2lkdGg9IjY0IiBo
+ZWlnaHQ9IjY0IiBhbHQ9IuWGheW1jOWbvueJhyI+PHAgaWQ9InNjcmlwdC1zdGF0ZSI+6ISa5pys
+5pyq5omn6KGMPC9wPjxzY3JpcHQ+d2luZG93LmltcG9ydGVkU2NyaXB0UmFuPXRydWU7PC9zY3Jp
+cHQ+PC9tYWluPjwvYm9keT48L2h0bWw+
+------WebShortcutsOfflineFixture
+Content-Type: text/css; charset=UTF-8
+Content-Transfer-Encoding: base64
+Content-Location: https://offline.example/style.css
+
+Ym9keXtmb250LWZhbWlseTpzYW5zLXNlcmlmO2JhY2tncm91bmQ6I2Y0ZmJmNztjb2xvcjojMTcy
+MTFkO3BhZGRpbmc6MzJweDtsaW5lLWhlaWdodDoxLjd9aDF7Y29sb3I6cmdiKDAsMTA2LDk2KX1t
+YWlue21heC13aWR0aDozOHJlbTttYXJnaW46YXV0b30=
+------WebShortcutsOfflineFixture
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-Location: https://offline.example/logo.png
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRp8A
+AAAASUVORK5CYII=
+------WebShortcutsOfflineFixture--

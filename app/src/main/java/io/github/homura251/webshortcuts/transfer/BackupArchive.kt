@@ -7,6 +7,7 @@ import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.data.BookmarkTag
 import io.github.homura251.webshortcuts.icons.IconPolicy
 import io.github.homura251.webshortcuts.icons.IconProcessor
+import io.github.homura251.webshortcuts.local.LocalPageStore
 import io.github.homura251.webshortcuts.ui.theme.AppearancePreferences
 import io.github.homura251.webshortcuts.ui.theme.LayoutMode
 import io.github.homura251.webshortcuts.ui.theme.ThemeMode
@@ -21,20 +22,27 @@ import org.json.JSONObject
 /** Versioned interchange envelope; the existing bookmark schema remains independent. */
 internal object BackupArchive {
     const val MAX_ARCHIVE_BYTES = 256L * 1024 * 1024
-    const val MAX_ENTRIES = BookmarkCodec.MAX_BOOKMARKS * 3 + 7
+    const val MAX_ENTRIES = BookmarkCodec.MAX_BOOKMARKS * 4 + 8
     private const val MAX_HEADER_BYTES = 16 * 1024
     private val assetPattern = Regex("icons/(?:(?:auto|custom)/[A-Za-z0-9_-]{1,100}\\.(?:png|webp)|original/[A-Za-z0-9_-]{1,100}\\.png)")
 
-    fun isAssetPath(path: String) = assetPattern.matches(path)
-    fun assetLimit(path: String) = if (path.startsWith("icons/original/")) IconProcessor.MAX_EDITABLE_BYTES else IconPolicy.MAX_IMAGE_BYTES
-    fun references(items: List<BookmarkItem>) = items.flatMap { listOfNotNull(it.autoImagePath, it.customImagePath, it.customOriginalPath) }.toSet()
+    fun isPagePath(path: String) = path.startsWith("pages/") && LocalPageStore.isSafeFileName(path.removePrefix("pages/"))
+    fun isAssetPath(path: String) = assetPattern.matches(path) || isPagePath(path)
+    fun assetLimit(path: String) = when {
+        isPagePath(path) -> LocalPageStore.MAX_FILE_BYTES.toInt()
+        path.startsWith("icons/original/") -> IconProcessor.MAX_EDITABLE_BYTES
+        else -> IconPolicy.MAX_IMAGE_BYTES
+    }
+    fun references(items: List<BookmarkItem>) = items.flatMap {
+        listOfNotNull(it.autoImagePath, it.customImagePath, it.customOriginalPath, it.localFileName?.let { name -> "pages/$name" })
+    }.toSet()
 
     fun write(file: File, items: List<BookmarkItem>, appearance: AppearancePreferences, assets: Map<String, File>,
               appVersion: String, missingImages: Int, tags: List<BookmarkTag> = emptyList(), checkpoint: () -> Unit = {}) {
         val records = BookmarkCodec.encode(LibrarySnapshot(items, tags)).toByteArray(Charsets.UTF_8)
         require(records.size <= BookmarkCodec.MAX_JSON_BYTES)
-        require(references(items) == assets.keys) { "备份图标引用不完整" }
-        val manifest = JSONObject().put("format", "WebShortcutsBackup").put("formatVersion", 1)
+        require(references(items) == assets.keys) { "备份图像或本地网页引用不完整" }
+        val manifest = JSONObject().put("format", "WebShortcutsBackup").put("formatVersion", 2)
             .put("appVersion", appVersion).put("exportedAt", System.currentTimeMillis()).put("missingImages", missingImages)
         var total = 0L
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
@@ -68,7 +76,7 @@ internal object BackupArchive {
                 val name = entry.name
                 require(seen.add(name)) { "备份包含重复文件" }
                 if (entry.isDirectory) {
-                    require(name in setOf("icons/", "icons/auto/", "icons/custom/", "icons/original/")) { "备份目录无效" }
+                    require(name in setOf("icons/", "icons/auto/", "icons/custom/", "icons/original/", "pages/")) { "备份目录无效" }
                     require(entry.size == 0L) { "备份目录包含异常内容" }
                     continue
                 }
@@ -93,12 +101,12 @@ internal object BackupArchive {
         }
         val manifest = JSONObject(documents["manifest.json"]?.toString(Charsets.UTF_8) ?: error("备份缺少清单"))
         require(manifest.getString("format") == "WebShortcutsBackup") { "不是 WebShortcuts 备份" }
-        require(manifest.getInt("formatVersion") == 1) { "不支持此备份版本，请更新应用" }
+        require(manifest.getInt("formatVersion") in 1..2) { "不支持此备份版本，请更新应用" }
         val json = documents["bookmarks.json"]?.toString(Charsets.UTF_8) ?: error("备份缺少收藏数据")
         validateRawRecords(json)
         val library = BookmarkCodec.decodeLibrary(json)
         val items = library.bookmarks
-        require(references(items) == assets.keys) { "备份图标缺失或包含未引用图片" }
+        require(references(items) == assets.keys) { "备份图像或本地网页缺失，或包含未引用文件" }
         val warnings = mutableListOf<String>()
         var appearance: AppearancePreferences? = null
         documents["appearance.json"]?.let { bytes ->
@@ -115,7 +123,10 @@ internal object BackupArchive {
         for (index in 0 until records.length()) {
             val record = records.getJSONObject(index)
             listOf("autoImagePath", "customImagePath", "customOriginalPath").forEach { key ->
-                if (record.has(key) && !record.isNull(key)) require(isAssetPath(record.getString(key))) { "备份图标路径无效" }
+                if (record.has(key) && !record.isNull(key)) require(assetPattern.matches(record.getString(key))) { "备份图标路径无效" }
+            }
+            if (record.has("localFileName") && !record.isNull("localFileName")) {
+                require(LocalPageStore.isSafeFileName(record.getString("localFileName"))) { "备份本地网页路径无效" }
             }
             if (record.has("selectedIconSource")) require(IconSourceMode.entries.any { it.name == record.getString("selectedIconSource") }) { "备份图标模式无效" }
         }

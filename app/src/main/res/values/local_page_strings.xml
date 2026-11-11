@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_reader_title">本地网页</string>
+    <string name="local_reader_offline">离线副本 · 不连接网络</string>
+    <string name="local_reader_close">关闭本地网页</string>
+    <string name="local_reader_reload">重新加载本地副本</string>
+    <string name="local_reader_unavailable">暂时无法打开</string>
+    <string name="local_reader_return">返回</string>
+    <string name="local_open_link_title">在浏览器中打开链接？</string>
+    <string name="local_open_link_message">此链接是在线网页，将交给浏览器打开；当前离线副本会保留。</string>
+    <string name="local_open_link_confirm">打开浏览器</string>
+    <string name="local_open_link_cancel">继续离线查看</string>
+    <string name="local_no_browser">未找到可用浏览器</string>
+</resources>

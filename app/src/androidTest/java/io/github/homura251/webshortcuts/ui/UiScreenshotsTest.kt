@@ -110,6 +110,8 @@ class UiScreenshotsTest {
                 error = "未能获取高清图标，已使用默认字母图标", dirty = true,
             ))
         }
+        capture("editor_screen", "18_editor_details.png")
+        compose.onNodeWithText("未能获取高清图标，已使用默认字母图标").performScrollTo().assertIsDisplayed()
         capture("editor_screen", "04_editor_auto_fallback.png")
 
         compose.runOnIdle {

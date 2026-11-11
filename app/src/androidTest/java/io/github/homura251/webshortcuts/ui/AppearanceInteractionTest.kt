@@ -18,11 +18,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.homura251.webshortcuts.data.BookmarkItem
@@ -87,6 +89,7 @@ class AppearanceInteractionTest {
         }
         compose.onNodeWithContentDescription("切换到网格视图").performClick()
         compose.runOnIdle { assertEquals(LayoutMode.GRID, preferences.value.layoutMode) }
+        compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasTestTag("bookmark_card_grid-first"))
         val first = compose.onNodeWithTag("bookmark_card_grid-first").fetchSemanticsNode().boundsInRoot
         val second = compose.onNodeWithTag("bookmark_card_grid-second").fetchSemanticsNode().boundsInRoot
         assertEquals(first.top, second.top, 1f)

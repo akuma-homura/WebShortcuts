@@ -38,7 +38,32 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="application/xhtml+xml" />
+                <data android:mimeType="multipart/related" />
+                <data android:mimeType="message/rfc822" />
+                <data android:mimeType="application/x-mimearchive" />
+                <data android:mimeType="application/mhtml" />
+                <data android:mimeType="application/x-mhtml" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="multipart/related" />
+                <data android:mimeType="message/rfc822" />
+                <data android:mimeType="application/x-mimearchive" />
+                <data android:mimeType="application/mhtml" />
+                <data android:mimeType="application/x-mhtml" />
+            </intent-filter>
         </activity>
+        <activity
+            android:name=".local.LocalPageActivity"
+            android:exported="false" />
         <activity
             android:name=".shortcuts.ShortcutRouterActivity"
             android:exported="true"

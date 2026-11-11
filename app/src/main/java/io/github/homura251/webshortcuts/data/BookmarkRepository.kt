@@ -44,7 +44,7 @@ class BookmarkRepository(context: Context) {
         mutex.withLock {
             ensureAvailable()
             val (tags, added) = LibraryTags.resolve(mutableLibrary.value.tags, changes ?: TagChanges())
-            val normalized = item.copy(title = item.title.trim(), url = UrlNormalizer.normalize(item.url),
+            val normalized = item.copy(title = item.title.trim(), url = normalizedUrl(item),
                 tagIds = if (changes == null) item.tagIds else (item.tagIds - changes.removeIds) + added)
             BookmarkCodec.validate(normalized)
             val old = mutableLibrary.value.bookmarks
@@ -80,7 +80,7 @@ class BookmarkRepository(context: Context) {
     suspend fun replaceAll(items: List<BookmarkItem>) = withContext(Dispatchers.IO) {
         mutex.withLock {
             ensureAvailable()
-            val normalized = items.map { it.copy(title = it.title.trim(), url = UrlNormalizer.normalize(it.url)) }
+            val normalized = items.map { it.copy(title = it.title.trim(), url = normalizedUrl(it)) }
             writeToDisk(mutableLibrary.value.copy(bookmarks = normalized))
         }
     }
@@ -93,7 +93,7 @@ class BookmarkRepository(context: Context) {
         mutex.withLock {
             ensureAvailable()
             writeToDisk(snapshot.copy(bookmarks = snapshot.bookmarks.map {
-                it.copy(title = it.title.trim(), url = UrlNormalizer.normalize(it.url))
+                it.copy(title = it.title.trim(), url = normalizedUrl(it))
             }))
         }
     }
@@ -176,6 +176,9 @@ class BookmarkRepository(context: Context) {
         if (!attemptedLoad) readFromDisk()
         mutableLoadError.value?.let { throw IOException(it) }
     }
+
+    private fun normalizedUrl(item: BookmarkItem): String =
+        if (item.isLocal) item.url else UrlNormalizer.normalize(item.url)
 
     private fun readFromDisk() {
         attemptedLoad = true

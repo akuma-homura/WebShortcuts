@@ -7,6 +7,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.BookmarkSourceType
+import io.github.homura251.webshortcuts.shortcuts.BrowserCatalog
+import io.github.homura251.webshortcuts.ui.SourceFilter
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.UrlNormalizer
 import io.github.homura251.webshortcuts.data.LibraryTags
@@ -63,6 +66,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     private var previewJob: Job? = null
     private var importJob: Job? = null
     private var sourceJob: Job? = null
+    private var localImportJob: Job? = null
     private var editorEpoch = 0
     private var fetchEpoch = 0
     private var importEpoch = 0
@@ -130,6 +134,73 @@ class MainViewModel(application: Application, private val savedState: SavedState
         mutableState.update { it.copy(query = value) }
     }
 
+    fun refreshBrowsers() {
+        viewModelScope.launch {
+            try {
+                val browsers = withContext(Dispatchers.IO) { BrowserCatalog.list(getApplication()) }
+                mutableState.update { it.copy(browsers = browsers) }
+            } catch (error: Exception) {
+                rethrowCancellation(error)
+                notify("暂时无法读取浏览器列表，请稍后返回重试")
+            }
+        }
+    }
+
+    fun setBrowser(packageName: String?) {
+        val editor = mutableState.value.editor ?: return
+        if (editor.saving || editor.isLocal) return
+        changeEditor { it.copy(browserPackage = packageName, dirty = true) }
+    }
+
+    fun setSourceFilter(value: SourceFilter) {
+        if (mutableState.value.selectionMode || mutableState.value.reorder != null) return
+        savedState["home.sourceFilter"] = value.name
+        mutableState.update { it.copy(sourceFilter = value) }
+    }
+
+    /** Copies the chosen document before exposing a draft; no persisted URI grant is needed. */
+    fun importLocalPage(uri: Uri, replaceExisting: Boolean = false) {
+        val home = mutableState.value
+        if (transferBlocked() || home.loading || home.error != null || home.selectionMode || localImportJob?.isActive == true) return
+        val existingEditor = home.editor
+        if (existingEditor != null && (!replaceExisting || !existingEditor.isLocal || existingEditor.saving)) {
+            notify("请先保存或关闭正在编辑的收藏")
+            return
+        }
+        val epoch = editorEpoch
+        val collectionEpoch = container.transferGate.epoch
+        mutableState.update { it.copy(importingLocal = true, editor = it.editor?.copy(importingFile = true)) }
+        localImportJob = viewModelScope.launch {
+            try {
+                container.mutationMutex.withLock {
+                    container.transferGate.requireWritable(collectionEpoch)
+                    val imported = container.localPageStore.importDocument(uri)
+                    if (epoch != editorEpoch || !container.transferGate.allowsMutation(collectionEpoch)) {
+                        container.localPageStore.delete(imported.fileName)
+                        return@withLock
+                    }
+                    val inferredTitle = imported.displayName.substringBeforeLast('.').take(160).ifBlank { "本地网页" }
+                    if (existingEditor == null) {
+                        beginEditor(null, EditorUiState(id = UUID.randomUUID().toString(), isNew = true,
+                            title = inferredTitle, mode = IconSourceMode.GENERATED, dirty = true,
+                            sourceType = imported.sourceType, localFileName = imported.fileName,
+                            localDisplayName = imported.displayName, tagIds = home.tagFilter.ids))
+                    } else {
+                        changeEditor { it.copy(sourceType = imported.sourceType, localFileName = imported.fileName,
+                            localDisplayName = imported.displayName, importingFile = false, dirty = true, error = null) }
+                    }
+                }
+            } catch (error: Exception) {
+                rethrowCancellation(error)
+                val message = error.message?.take(180) ?: "本地网页导入失败，请重新选择文件"
+                if (existingEditor != null) changeEditor { it.copy(importingFile = false, error = message) }
+                notify(message)
+            } finally {
+                mutableState.update { it.copy(importingLocal = false, editor = it.editor?.copy(importingFile = false)) }
+            }
+        }
+    }
+
     fun setTagFilter(filter: TagFilter) {
         if (mutableState.value.selectionMode || mutableState.value.reorder != null) return
         val next = filter.prune(repository.library.value.tags)
@@ -154,7 +225,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val library = repository.library.value
         val base = if (target == OrderTarget.BOOKMARKS) library.bookmarks.map { it.id } else library.tags.map { it.id }
         val draft = ReorderUiState(target, base, emptyList(), if (target == OrderTarget.BOOKMARKS) home.query else query,
-            if (target == OrderTarget.BOOKMARKS) home.tagFilter else TagFilter(), container.transferGate.epoch)
+            if (target == OrderTarget.BOOKMARKS) home.tagFilter else TagFilter(), container.transferGate.epoch,
+            sourceFilter = home.sourceFilter)
         val ids = reorderScope(draft, library)
         if (ids.size < 2) { notify("至少需要两项才能整理顺序"); return }
         publishReorder(draft.copy(orderedIds = ids))
@@ -196,7 +268,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     private fun reorderScope(draft: ReorderUiState, library: LibrarySnapshot): List<String> =
-        if (draft.target == OrderTarget.BOOKMARKS) LibraryTags.filter(library.bookmarks, library.tags, draft.query, draft.filter).map { it.id }
+        if (draft.target == OrderTarget.BOOKMARKS) LibraryTags.filter(library.bookmarks, library.tags, draft.query, draft.filter)
+            .filter { matchesSource(it, draft.sourceFilter) }.map { it.id }
         else library.tags.filter { it.name.contains(draft.query.trim(), true) }.map { it.id }
 
     private fun reorderMatches(draft: ReorderUiState, library: LibrarySnapshot): Boolean {
@@ -214,6 +287,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             savedState["order.query"] = draft.query
             savedState["order.tags"] = ArrayList(draft.filter.ids)
             savedState["order.untagged"] = draft.filter.untagged
+            savedState["order.source"] = draft.sourceFilter.name
         }
         mutableState.update { it.copy(reorder = draft) }
     }
@@ -223,7 +297,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val draft = runCatching { ReorderUiState(OrderTarget.valueOf(target),
             savedState.get<ArrayList<String>>("order.base").orEmpty(), savedState.get<ArrayList<String>>("order.ids").orEmpty(),
             savedState["order.query"] ?: "", TagFilter(savedState.get<ArrayList<String>>("order.tags").orEmpty().toSet(),
-                savedState["order.untagged"] ?: false), container.transferGate.epoch) }.getOrNull()
+                savedState["order.untagged"] ?: false), container.transferGate.epoch,
+            sourceFilter = SourceFilter.valueOf(savedState.get<String>("order.source") ?: "ALL")) }.getOrNull()
         val home = mutableState.value
         if (draft != null && draft.orderedIds.size >= 2 && !home.selectionMode && home.editor == null && home.tagEditor == null &&
             !container.transferGate.busy.value && reorderMatches(draft, repository.library.value)) publishReorder(draft)
@@ -243,7 +318,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
     fun selectAll() {
         val home = mutableState.value
         if (!home.selectionMode || home.tagSaving) return
-        val ids = LibraryTags.filter(home.bookmarks, home.tags, home.query, home.tagFilter).map { it.id }.toSet()
+        val ids = LibraryTags.filter(home.bookmarks, home.tags, home.query, home.tagFilter)
+            .filter { matchesSource(it, home.sourceFilter) }.map { it.id }.toSet()
         savedState["home.selected"] = ArrayList(ids)
         mutableState.update { it.copy(selectedIds = ids) }
     }
@@ -409,6 +485,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val selected = savedState.get<ArrayList<String>>("home.selected").orEmpty().intersect(library.bookmarks.map { it.id }.toSet())
         mutableState.update { it.copy(bookmarks = library.bookmarks, tags = library.tags,
             query = savedState["home.query"] ?: "", tagFilter = filter,
+            sourceFilter = runCatching { SourceFilter.valueOf(savedState.get<String>("home.sourceFilter") ?: "ALL") }.getOrDefault(SourceFilter.ALL),
             selectionMode = savedState["home.selecting"] ?: false, selectedIds = selected,
             newTagName = savedState["tags.catalogInput"] ?: "") }
         libraryUiRestored = true
@@ -466,6 +543,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
             mode = item.selectedIconSource, sourceLabel = item.iconDescription,
             hasCustomImage = item.customImagePath != null, cropRect = item.customCrop,
             tagIds = item.tagIds, initialTagIds = item.tagIds,
+            browserPackage = item.browserPackage, sourceType = item.sourceType,
+            localFileName = item.localFileName, localDisplayName = item.localDisplayName,
         ))
     }
 
@@ -496,7 +575,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun dismissEditor() {
-        if (mutableState.value.editor?.saving == true) return
+        if (mutableState.value.editor?.saving == true || mutableState.value.editor?.importingFile == true) return
         closeEditor()
     }
 
@@ -525,7 +604,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     fun setUrl(value: String) {
-        if (mutableState.value.editor?.saving == true) return
+        if (mutableState.value.editor?.saving == true || mutableState.value.editor?.isLocal == true) return
         fetchJob?.cancel()
         fetchEpoch++
         lastAttemptedUrl = null
@@ -535,6 +614,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun setMode(value: IconSourceMode) {
         if (mutableState.value.editor?.saving == true || importJob?.isActive == true) return
+        if (value == IconSourceMode.AUTO && mutableState.value.editor?.isLocal == true) return
         fetchJob?.cancel()
         fetchEpoch++
         changeEditor { it.copy(mode = value, loading = false, error = null, dirty = true) }
@@ -544,7 +624,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun onUrlFocusLost() {
         val editor = mutableState.value.editor ?: return
-        if (editor.saving || editor.url.isBlank()) return
+        if (editor.isLocal || editor.saving || editor.url.isBlank()) return
         val normalized = normalizeOrShowError(editor.url) ?: return
         changeEditor { current -> current.copy(
             url = normalized,
@@ -559,7 +639,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     private fun fetchIcon(force: Boolean) {
         val editor = mutableState.value.editor ?: return
-        if (editor.mode != IconSourceMode.AUTO || editor.saving || importJob?.isActive == true) return
+        if (editor.isLocal || editor.mode != IconSourceMode.AUTO || editor.saving || importJob?.isActive == true) return
         val target = normalizeOrShowError(editor.url) ?: return
         if (fetchJob?.isActive == true && lastAttemptedUrl == target) return
         if (!force && lastAttemptedUrl == target) return
@@ -595,7 +675,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun importImage(uri: Uri) {
         val editor = mutableState.value.editor ?: return
-        if (editor.saving) return
+        if (editor.saving || editor.importingFile) return
         fetchJob?.cancel()
         fetchEpoch++
         importJob?.cancel()
@@ -682,13 +762,17 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val collectionEpoch = container.transferGate.epoch
         if (transferBlocked()) return
         val editor = mutableState.value.editor ?: return
-        if (editor.saving) return
+        if (editor.saving || editor.importingFile) return
         if (importJob?.isActive == true) { notify("请等待图片处理完成后保存"); return }
         if (customOriginalDirty && customOriginal == null) {
             changeEditor { it.copy(error = "原图草稿已过期，请重新导入图片后保存，或放弃本次编辑") }
             return
         }
-        val url = normalizeOrShowError(editor.url) ?: return
+        val url = if (editor.isLocal) "" else normalizeOrShowError(editor.url) ?: return
+        if (editor.isLocal && container.localPageStore.resolve(editor.localFileName.orEmpty()) == null) {
+            changeEditor { it.copy(error = "本地文件已不可用，请重新导入后保存") }
+            return
+        }
         val title = editor.title.trim()
         if (title.isEmpty() || title.length > 160 || title.any { it.isISOControl() }) {
             changeEditor { it.copy(titleError = "请输入 1–160 个字符的网站名称，不包含换行") }
@@ -698,7 +782,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
             changeEditor { it.copy(error = "请先选择一张自定义图片，或切换图标模式") }
             return
         }
-        val continueAutomaticFetch = editor.mode == IconSourceMode.AUTO &&
+        val continueAutomaticFetch = !editor.isLocal && editor.mode == IconSourceMode.AUTO &&
             (fetchJob?.isActive == true || lastAttemptedUrl != url)
         fetchJob?.cancel()
         fetchEpoch++
@@ -708,7 +792,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val pendingOriginal = customOriginal.takeIf { customOriginalDirty }
         val changes = TagChanges(editor.tagIds - editor.initialTagIds, editor.initialTagIds - editor.tagIds, editor.newTagNames)
         val tagsOnly = !editor.isNew && original?.let {
-            it.title == title && it.url == url && it.selectedIconSource == editor.mode
+            it.title == title && it.url == url && it.selectedIconSource == editor.mode &&
+                it.browserPackage == editor.browserPackage && it.sourceType == editor.sourceType &&
+                it.localFileName == editor.localFileName && it.localDisplayName == editor.localDisplayName
         } == true && pendingAuto == null && pendingCustom == null && pendingOriginal == null
         viewModelScope.launch {
             var saved = false
@@ -747,6 +833,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
                         iconDescription = pendingAuto?.description ?: previous?.iconDescription.takeIf { sameUrl },
                         createdAt = previous?.createdAt ?: now, updatedAt = now,
                         tagIds = previous?.tagIds.orEmpty(),
+                        browserPackage = if (editor.isLocal) null else editor.browserPackage,
+                        sourceType = editor.sourceType, localFileName = editor.localFileName,
+                        localDisplayName = editor.localDisplayName,
                     )
                     repository.save(item, changes)
                     saved = true
@@ -785,6 +874,10 @@ class MainViewModel(application: Application, private val savedState: SavedState
                     container.transferGate.requireWritable(collectionEpoch)
                     repository.delete(item.id)
                     try { container.shortcutPublisher.disable(item.id) } catch (error: Exception) { rethrowCancellation(error) }
+                    item.localFileName?.let { file ->
+                        if (repository.bookmarks.value.none { it.localFileName == file } && mutableState.value.editor?.localFileName != file)
+                            container.localPageStore.delete(file)
+                    }
                     cleanUnusedIcons()
                 }
                 notify("已删除收藏；对应的旧桌面快捷方式将不可用")
@@ -826,7 +919,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     fun refresh(item: BookmarkItem) {
         if (transferBlocked()) return
-        if (item.selectedIconSource != IconSourceMode.AUTO) { notify("只有自动模式的图标会被刷新"); return }
+        if (item.isLocal || item.selectedIconSource != IconSourceMode.AUTO) { notify("只有在线网页的自动图标会被刷新"); return }
         if (item.id in mutableState.value.refreshingIds) return
         viewModelScope.launch {
             val result = refreshOne(item)
@@ -840,7 +933,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     fun refreshAll() {
         if (transferBlocked()) return
         if (mutableState.value.refreshing) return
-        val candidates = repository.bookmarks.value.filter { it.selectedIconSource == IconSourceMode.AUTO }
+        val candidates = repository.bookmarks.value.filter { !it.isLocal && it.selectedIconSource == IconSourceMode.AUTO }
         if (candidates.isEmpty()) { notify("暂无需要刷新的自动图标"); return }
         mutableState.update { it.copy(refreshing = true, refreshCompleted = 0, refreshTotal = candidates.size, refreshSummary = null) }
         viewModelScope.launch {
@@ -872,6 +965,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
     }
 
     private suspend fun refreshOne(snapshot: BookmarkItem): RefreshResult {
+        if (snapshot.isLocal) return RefreshResult.SKIPPED
         val collectionEpoch = container.transferGate.epoch
         if (!container.transferGate.allowsMutation(collectionEpoch)) return RefreshResult.SKIPPED
         synchronized(refreshingIds) {
@@ -996,6 +1090,10 @@ class MainViewModel(application: Application, private val savedState: SavedState
         savedState["draft.title"] = editor.title
         savedState["draft.url"] = editor.url
         savedState["draft.mode"] = editor.mode.name
+        savedState["draft.browser"] = editor.browserPackage
+        savedState["draft.sourceType"] = editor.sourceType.name
+        savedState["draft.localFile"] = editor.localFileName
+        savedState["draft.localName"] = editor.localDisplayName
         savedState["draft.dirty"] = editor.dirty
         savedState["draft.custom"] = customDraftName
         savedState["draft.original"] = originalDraftName
@@ -1023,8 +1121,13 @@ class MainViewModel(application: Application, private val savedState: SavedState
         val tagIds = if (savedState.contains("draft.tags")) savedState.get<ArrayList<String>>("draft.tags").orEmpty().intersect(knownTags) else previous?.tagIds.orEmpty()
         val initialTags = if (savedState.contains("draft.initialTags")) savedState.get<ArrayList<String>>("draft.initialTags").orEmpty().intersect(knownTags) else previous?.tagIds.orEmpty()
         val newTags = savedState.get<ArrayList<String>>("draft.newTags").orEmpty().toList()
+        val sourceType = runCatching { BookmarkSourceType.valueOf(savedState.get<String>("draft.sourceType") ?: previous?.sourceType?.name ?: "WEB") }.getOrDefault(BookmarkSourceType.WEB)
         beginEditor(previous, EditorUiState(id = id, isNew = isNew, title = title, url = url, mode = mode, dirty = dirty,
             hasCustomImage = previous?.customImagePath != null, cropRect = crop,
+            sourceType = sourceType,
+            browserPackage = if (savedState.contains("draft.browser")) savedState["draft.browser"] else previous?.browserPackage,
+            localFileName = savedState.get<String>("draft.localFile") ?: previous?.localFileName,
+            localDisplayName = savedState.get<String>("draft.localName") ?: previous?.localDisplayName,
             tagIds = tagIds, initialTagIds = initialTags, newTagNames = newTags), loadCropSource = false)
         customImage = drafts.read(customName)
         customDraftName = customName.takeIf { customImage != null }
@@ -1053,6 +1156,9 @@ class MainViewModel(application: Application, private val savedState: SavedState
 
     private suspend fun cleanUnusedIcons() {
         try { container.iconStore.cleanup(repository.bookmarks.value) } catch (error: Exception) { rethrowCancellation(error) }
+        try { container.localPageStore.cleanup(repository.bookmarks.value,
+            listOfNotNull(mutableState.value.editor?.localFileName).toSet())
+        } catch (error: Exception) { rethrowCancellation(error) }
     }
 
     private fun cancelEditorJobs() {
@@ -1077,6 +1183,11 @@ class MainViewModel(application: Application, private val savedState: SavedState
         return true
     }
     private fun rethrowCancellation(error: Exception) { if (error is CancellationException) throw error }
+    private fun matchesSource(item: BookmarkItem, filter: SourceFilter): Boolean = when (filter) {
+        SourceFilter.ALL -> true
+        SourceFilter.WEB -> !item.isLocal
+        SourceFilter.LOCAL -> item.isLocal
+    }
     private enum class RefreshResult(val message: String) {
         UPDATED("已更新图标，保存在此设备"),
         SYNC_REQUESTED("已更新图标并请求桌面同步，显示时间由启动器决定"),
@@ -1085,8 +1196,8 @@ class MainViewModel(application: Application, private val savedState: SavedState
         SKIPPED("收藏已修改或正在刷新，本次未覆盖"),
     }
     private companion object {
-        val REORDER_KEYS = listOf("order.target", "order.base", "order.ids", "order.query", "order.tags", "order.untagged")
-        val DRAFT_KEYS = listOf("draft.id", "draft.new", "draft.title", "draft.url", "draft.mode", "draft.dirty", "draft.custom", "draft.original", "draft.crop", "draft.tags", "draft.initialTags", "draft.newTags")
+        val REORDER_KEYS = listOf("order.target", "order.base", "order.ids", "order.query", "order.tags", "order.untagged", "order.source")
+        val DRAFT_KEYS = listOf("draft.id", "draft.new", "draft.title", "draft.url", "draft.mode", "draft.dirty", "draft.custom", "draft.original", "draft.crop", "draft.tags", "draft.initialTags", "draft.newTags", "draft.browser", "draft.sourceType", "draft.localFile", "draft.localName")
         val TAG_SHEET_KEYS = listOf("tags.targets", "tags.mode", "tags.initial", "tags.selected", "tags.names", "tags.input", "tags.editor")
     }
 }

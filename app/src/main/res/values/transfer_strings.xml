@@ -1,11 +1,11 @@
 <resources>
     <string name="transfer_title">导入 / 导出</string>
-    <string name="transfer_subtitle">备份收藏与图标，或与浏览器交换书签。</string>
+    <string name="transfer_subtitle">备份收藏、图标与离线网页，或与浏览器交换书签。</string>
     <string name="transfer_choose">选择 ZIP 或 HTML 文件</string>
     <string name="transfer_export_zip">导出完整备份 ZIP</string>
     <string name="transfer_zip_detail">收藏、标签、图标原图、裁切参数与外观设置</string>
     <string name="transfer_export_html">导出浏览器书签 HTML</string>
-    <string name="transfer_html_detail">仅名称和网址，支持浏览器通用书签格式</string>
+    <string name="transfer_html_detail">仅在线网页名称和网址；本地文件与浏览器选择请使用 ZIP 备份</string>
     <string name="transfer_backup_note">备份文件包含网址与图片，请保存在合适的位置。导出范围为全部收藏。</string>
     <string name="transfer_preview_title">检查导入内容</string>
     <string name="transfer_zip_format">WebShortcuts 完整备份</string>

@@ -10,6 +10,7 @@ import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.icons.IconPolicy
 import io.github.homura251.webshortcuts.icons.IconStore
 import io.github.homura251.webshortcuts.icons.StoredIconBytes
+import io.github.homura251.webshortcuts.local.LocalPageStore
 import io.github.homura251.webshortcuts.shortcuts.ShortcutPublisher
 import io.github.homura251.webshortcuts.ui.theme.ThemePreferences
 import java.io.File
@@ -42,6 +43,7 @@ class TransferManager(
 ) {
     private val context = context.applicationContext
     private val root = File(this.context.cacheDir, "transfers")
+    private val pages = LocalPageStore(this.context)
     private val imports = ConcurrentHashMap<String, PreparedImport>()
 
     suspend fun prepareImport(uri: Uri, token: String, progress: (TransferProgress) -> Unit): ImportPreview = withContext(Dispatchers.IO) {
@@ -83,9 +85,10 @@ class TransferManager(
         val (parsed, assets) = BackupArchive.read(input, staging) { jobContext.ensureActive() }
         assets.entries.forEachIndexed { index, (path, file) ->
             jobContext.ensureActive()
-            progress(TransferProgress("正在检查图像 ${index + 1} / ${assets.size}", index + 1, assets.size))
+            progress(TransferProgress("正在检查文件 ${index + 1} / ${assets.size}", index + 1, assets.size))
             val bytes = file.inputStream().use { IconPolicy.readBounded(it, BackupArchive.assetLimit(path)) }
-            StoredIconBytes.validate(bytes, path.startsWith("icons/original/"), path.substringAfterLast('.'))
+            if (BackupArchive.isPagePath(path)) pages.validateBytes(path.removePrefix("pages/"), bytes)
+            else StoredIconBytes.validate(bytes, path.startsWith("icons/original/"), path.substringAfterLast('.'))
         }
         return PreparedImport(token, TransferFormat.BACKUP_ZIP, parsed, assets)
     }
@@ -129,18 +132,21 @@ class TransferManager(
                 require(BookmarkCodec.encode(tentative).toByteArray(Charsets.UTF_8).size <= BookmarkCodec.MAX_JSON_BYTES) { "导入后收藏数据超过 4 MiB" }
                 var committed = false
                 val warnings = prepared.parsed.warnings.toMutableList()
+                val restoredPages = mutableSetOf<String>()
                 try {
                     val needed = BackupArchive.references(versioned)
                     val restored = mutableMapOf<String, String>()
                     needed.forEachIndexed { index, path ->
-                        progress(TransferProgress("正在恢复图像 ${index + 1} / ${needed.size}", index + 1, needed.size))
-                        val file = prepared.assets[path] ?: error("备份图像缺失，原收藏未更改")
+                        progress(TransferProgress("正在恢复文件 ${index + 1} / ${needed.size}", index + 1, needed.size))
+                        val file = prepared.assets[path] ?: error("备份文件缺失，原收藏未更改")
                         val bytes = file.inputStream().use { IconPolicy.readBounded(it, BackupArchive.assetLimit(path)) }
-                        restored[path] = icons.restoreBytes(path, bytes)
+                        restored[path] = if (BackupArchive.isPagePath(path)) pages.restoreBytes(path.removePrefix("pages/"), bytes).also(restoredPages::add)
+                            else icons.restoreBytes(path, bytes)
                     }
                     val imported = versioned.map { item -> item.copy(autoImagePath = item.autoImagePath?.let(restored::getValue),
                         customImagePath = item.customImagePath?.let(restored::getValue),
-                        customOriginalPath = item.customOriginalPath?.let(restored::getValue)) }
+                        customOriginalPath = item.customOriginalPath?.let(restored::getValue),
+                        localFileName = item.localFileName?.let { restored.getValue("pages/$it") }) }
                     val after = imported + retained
                     val afterLibrary = LibrarySnapshot(after, tags)
                     progress(TransferProgress("正在保存收藏…"))
@@ -164,6 +170,14 @@ class TransferManager(
                     try { icons.cleanup(repository.snapshot()) } catch (_: Exception) {
                         if (committed) warnings += "收藏已导入，临时图像将在下次启动时清理"
                     }
+                    if (!committed && restoredPages.isNotEmpty()) {
+                        // Only files allocated by this failed transaction are candidates. Broader
+                        // pruning belongs to MainViewModel, which can protect any active editor draft.
+                        runCatching {
+                            val referenced = repository.snapshot().mapNotNull { it.localFileName }.toSet()
+                            restoredPages.filterNot(referenced::contains).forEach(pages::delete)
+                        }
+                    }
                 }
             }
         }
@@ -180,6 +194,7 @@ class TransferManager(
             progress(TransferProgress("正在准备导出…"))
             val output = File(directory, "export.${format.extension}")
             var missing = 0
+            val skippedLocal = if (format == TransferFormat.BOOKMARKS_HTML) items.count(BookmarkItem::isLocal) else 0
             if (format == TransferFormat.BOOKMARKS_HTML) output.writeBytes(BookmarkHtmlCodec.encode(items))
             else {
                 val assets = linkedMapOf<String, File>()
@@ -187,8 +202,12 @@ class TransferManager(
                 var snapshotBytes = 0L
                 paths.forEachIndexed { index, path ->
                     jobContext.ensureActive()
-                    progress(TransferProgress("正在备份图像 ${index + 1} / ${paths.size}", index + 1, paths.size))
-                    val bytes = icons.exportBytes(path)
+                    progress(TransferProgress("正在备份文件 ${index + 1} / ${paths.size}", index + 1, paths.size))
+                    val bytes = if (BackupArchive.isPagePath(path)) {
+                        val page = pages.exportFile(path.removePrefix("pages/"))
+                            ?: error("本地网页文件缺失，请重新导入后再创建完整备份")
+                        page.inputStream().use { IconPolicy.readBounded(it, LocalPageStore.MAX_FILE_BYTES.toInt()) }
+                    } else icons.exportBytes(path)
                     if (bytes == null) missing++ else {
                         snapshotBytes += bytes.size
                         require(snapshotBytes <= BackupArchive.MAX_ARCHIVE_BYTES) { "备份内容超过 256 MiB" }
@@ -207,8 +226,9 @@ class TransferManager(
             val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())
             val filename = "WebShortcuts-${if (format == TransferFormat.BACKUP_ZIP) "backup" else "bookmarks"}-$timestamp.${format.extension}"
             File(directory, "ready.json").writeText(JSONObject().put("kind", "export").put("format", format.name)
-                .put("filename", filename).put("itemCount", items.size).put("missingImages", missing).toString())
-            ExportPreview(token, format, filename, items.size, missing)
+                .put("filename", filename).put("itemCount", items.size - skippedLocal).put("missingImages", missing)
+                .put("skippedLocalFiles", skippedLocal).toString())
+            ExportPreview(token, format, filename, items.size - skippedLocal, missing, skippedLocal)
         }
     }
 
@@ -217,7 +237,8 @@ class TransferManager(
         require(descriptor.getString("kind") == "export")
         val format = TransferFormat.valueOf(descriptor.getString("format"))
         require(File(session(token), "export.${format.extension}").isFile) { "导出缓存已过期，请重新导出" }
-        ExportPreview(token, format, descriptor.getString("filename"), descriptor.getInt("itemCount"), descriptor.optInt("missingImages"))
+        ExportPreview(token, format, descriptor.getString("filename"), descriptor.getInt("itemCount"), descriptor.optInt("missingImages"),
+            descriptor.optInt("skippedLocalFiles"))
     }
 
     /** destination must be a new document returned by CreateDocument, never a user-selected input. */
