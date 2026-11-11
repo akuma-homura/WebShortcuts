@@ -65,6 +65,7 @@ data class ExportPreview(
     val filename: String,
     val itemCount: Int,
     val missingImages: Int = 0,
+    val skippedLocalFiles: Int = 0,
 )
 
 data class ImportResult(

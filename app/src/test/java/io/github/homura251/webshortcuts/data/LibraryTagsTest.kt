@@ -14,7 +14,7 @@ class LibraryTagsTest {
 
     @Test fun schemaFourRoundTripPreservesCatalogEmptyTagsAndAssociations() {
         assertEquals(library, BookmarkCodec.decodeLibrary(BookmarkCodec.encode(library)))
-        assertEquals(4, JSONObject(BookmarkCodec.encode(library)).getInt("schemaVersion"))
+        assertEquals(BookmarkCodec.SCHEMA_VERSION, JSONObject(BookmarkCodec.encode(library)).getInt("schemaVersion"))
     }
 
     @Test fun oldSchemasAndRawListsLoadWithoutTagsAndKeepIdentity() {

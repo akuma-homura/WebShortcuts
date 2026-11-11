@@ -9,8 +9,10 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.AppContainer
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.BookmarkSourceType
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.CropRect
+import io.github.homura251.webshortcuts.local.LocalPageStore
 import io.github.homura251.webshortcuts.ui.theme.AppearancePreferences
 import io.github.homura251.webshortcuts.ui.theme.LayoutMode
 import io.github.homura251.webshortcuts.ui.theme.ThemeMode
@@ -285,6 +287,121 @@ class TransferManagerTest {
         manager.prepareImport(Uri.fromFile(File(context.cacheDir, "transfers/${export.token}/export.zip")), token) {}
         manager.commitImport(token, ImportMode.REPLACE, false) {}
         assertArrayEquals(bytes, container.iconStore.exportBytes(container.repository.snapshot().single().customImagePath!!)!!)
+    }
+
+    @Test fun fullBackupRestoresBrowserAccountsAndFreshPrivateCopiesOfBothLocalFormats() = runBlocking {
+        val pages = LocalPageStore(context)
+        val htmlBytes = "<!doctype html><html><body>离线页面</body></html>".toByteArray()
+        val archiveBytes = ("MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=\"saved\"\r\n\r\n" +
+            "--saved\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Location: https://example.com/\r\n\r\n" +
+            "<!doctype html><html><body>Archived</body></html>\r\n--saved--\r\n").toByteArray()
+        val html = BookmarkItem(title = "离线资料", url = "", sourceType = BookmarkSourceType.HTML,
+            localFileName = pages.restoreBytes("source.html", htmlBytes), localDisplayName = "资料.htm", selectedIconSource = IconSourceMode.GENERATED)
+        val mhtml = html.copy(id = token(), sourceType = BookmarkSourceType.MHTML,
+            localFileName = pages.restoreBytes("archive.mhtml", archiveBytes), localDisplayName = "归档.mht")
+        val web = BookmarkItem(title = "Work", url = "https://example.com/", browserPackage = "com.chrome.beta")
+        val otherAccount = web.copy(id = token(), browserPackage = "org.mozilla.firefox")
+        val originals = listOf(web, otherAccount, html, mhtml)
+        container.repository.replaceAll(originals)
+        val backup = backup()
+        container.repository.replaceAll(emptyList())
+        pages.delete(html.localFileName!!); pages.delete(mhtml.localFileName!!)
+        val token = token()
+        assertEquals(4, manager.prepareImport(Uri.fromFile(backup), token) {}.itemCount)
+        manager.commitImport(token, ImportMode.REPLACE, false) {}
+        val restored = container.repository.snapshot()
+        assertEquals(originals.map { it.id }, restored.map { it.id })
+        assertEquals(listOf("com.chrome.beta", "org.mozilla.firefox"), restored.filterNot { it.isLocal }.map { it.browserPackage })
+        val restoredHtml = restored.first { it.id == html.id }
+        val restoredArchive = restored.first { it.id == mhtml.id }
+        assertNotEquals(html.localFileName, restoredHtml.localFileName)
+        assertNotEquals(mhtml.localFileName, restoredArchive.localFileName)
+        assertArrayEquals(htmlBytes, pages.resolve(restoredHtml.localFileName!!)!!.readBytes())
+        assertArrayEquals(archiveBytes, pages.resolve(restoredArchive.localFileName!!)!!.readBytes())
+        assertEquals("资料.htm", restoredHtml.localDisplayName)
+        assertEquals("", restoredArchive.url)
+    }
+
+    @Test fun missingLocalDocumentStopsFullBackupAndPreservesTheCollection() = runBlocking {
+        val missing = BookmarkItem(title = "Lost file", url = "", sourceType = BookmarkSourceType.HTML,
+            localFileName = "missing.html", localDisplayName = "source.html")
+        container.repository.save(missing)
+        val failure = runCatching { manager.prepareExport(TransferFormat.BACKUP_ZIP, token()) {} }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure!!.message!!.contains("本地网页文件缺失"))
+        assertEquals(listOf(missing), container.repository.snapshot())
+    }
+
+    @Test fun zipMergeKeepsSameSiteAccountsDistinctAndNeverReassignsAnExistingBrowser() = runBlocking {
+        val beta = BookmarkItem(id = "work-account", title = "Work", url = "https://same.example/", browserPackage = "com.chrome.beta")
+        val firefox = beta.copy(id = "personal-account", title = "Personal", browserPackage = "org.mozilla.firefox")
+        container.repository.replaceAll(listOf(beta, firefox))
+        val backup = backup()
+        // The same stable shortcut was deliberately changed on this device after the backup.
+        val changedLocal = beta.copy(browserPackage = "com.android.chrome", title = "Keep local choice")
+        container.repository.replaceAll(listOf(changedLocal))
+        repeat(2) { pass ->
+            val token = token()
+            val preview = manager.prepareImport(Uri.fromFile(backup), token) {}
+            assertEquals(if (pass == 0) 1 else 0, preview.newCount)
+            manager.commitImport(token, ImportMode.MERGE, false) {}
+            val current = container.repository.snapshot()
+            assertEquals(2, current.size)
+            assertEquals(changedLocal, current.first { it.id == beta.id })
+            assertEquals("org.mozilla.firefox", current.first { it.id == firefox.id }.browserPackage)
+            assertEquals(setOf("com.android.chrome", "org.mozilla.firefox"), current.map { it.browserPackage }.toSet())
+        }
+    }
+
+    @Test fun htmlExportReportsOmittedLocalDocumentsAndPersistsAccurateCounts() = runBlocking {
+        val pages = LocalPageStore(context)
+        val fileName = pages.restoreBytes("source.html", "<html><body>Local</body></html>".toByteArray())
+        val local = BookmarkItem(title = "Local", url = "", sourceType = BookmarkSourceType.HTML,
+            localFileName = fileName, localDisplayName = "source.html")
+        val web = BookmarkItem(title = "Web", url = "https://example.com/", browserPackage = "com.chrome.beta")
+        container.repository.replaceAll(listOf(local, web))
+        val preview = manager.prepareExport(TransferFormat.BOOKMARKS_HTML, token()) {}
+        assertEquals(1, preview.itemCount)
+        assertEquals(1, preview.skippedLocalFiles)
+        assertEquals(preview, manager.restoreExport(preview.token))
+        val exported = File(context.cacheDir, "transfers/${preview.token}/export.html").readBytes()
+        assertEquals(listOf(web.url), BookmarkHtmlCodec.decode(exported).items.map { it.url })
+        assertEquals(listOf(local, web), container.repository.snapshot())
+    }
+
+    @Test fun malformedLocalContentIsRejectedDuringPreflightWithoutMutatingExistingData() = runBlocking {
+        val existing = BookmarkItem(title = "Existing", url = "https://example.com/")
+        container.repository.save(existing)
+        val local = BookmarkItem(title = "Invalid local", url = "", sourceType = BookmarkSourceType.HTML,
+            localFileName = "invalid.html", localDisplayName = "invalid.html")
+        val asset = File(context.cacheDir, "invalid-source").apply { writeText("not an HTML document") }
+        val zip = File(context.cacheDir, "invalid-local.zip")
+        BackupArchive.write(zip, listOf(local), AppearancePreferences(), mapOf("pages/invalid.html" to asset), "2.0.0", 0)
+        assertTrue(runCatching { manager.prepareImport(Uri.fromFile(zip), token()) {} }.isFailure)
+        assertEquals(listOf(existing), container.repository.snapshot())
+        assertNull(LocalPageStore(context).resolve("invalid.html"))
+    }
+
+    @Test fun failedLocalRestoreRemovesOnlyItsNewFilesAndProtectsAnOldActiveDraft() = runBlocking {
+        val pages = LocalPageStore(context)
+        val bytes = "<html><body>Keep this document</body></html>".toByteArray()
+        val originalName = pages.restoreBytes("source.html", bytes)
+        val activeDraftName = pages.restoreBytes("draft.html", bytes)
+        pages.resolve(activeDraftName)!!.setLastModified(System.currentTimeMillis() - 48L * 60 * 60 * 1000)
+        val original = BookmarkItem(title = "Original", url = "", sourceType = BookmarkSourceType.HTML,
+            localFileName = originalName, localDisplayName = "source.html")
+        container.repository.save(original)
+        val backup = backup()
+        val token = token()
+        manager.prepareImport(Uri.fromFile(backup), token) {}
+        val blocked = File(context.filesDir, "bookmarks.json.new").apply { mkdir() }
+        try { assertTrue(runCatching { manager.commitImport(token, ImportMode.REPLACE, false) {} }.isFailure) }
+        finally { blocked.deleteRecursively() }
+        assertEquals(listOf(original), container.repository.snapshot())
+        assertArrayEquals(bytes, pages.resolve(originalName)!!.readBytes())
+        assertArrayEquals(bytes, pages.resolve(activeDraftName)!!.readBytes())
+        assertEquals(setOf(originalName, activeDraftName), File(context.filesDir, LocalPageStore.DIRECTORY)
+            .listFiles()!!.map { it.name }.toSet())
     }
 
     private suspend fun seed(): BookmarkItem {

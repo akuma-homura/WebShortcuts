@@ -19,7 +19,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import io.github.homura251.webshortcuts.shortcuts.ChromeTabLauncher
+import io.github.homura251.webshortcuts.shortcuts.BrowserLauncher
+import androidx.core.content.IntentCompat
 import io.github.homura251.webshortcuts.ui.TagActions
 import io.github.homura251.webshortcuts.ui.WebShortcutsApp
 import io.github.homura251.webshortcuts.ui.TransferSheet
@@ -38,6 +39,9 @@ class MainActivity : ComponentActivity() {
         uri?.let(viewModel::importImage)
     }
     private val importPicker = registerForActivityResult(TransferOpenDocument()) { transferViewModel.onImportPicked(it) }
+    private val localPagePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.importLocalPage(it, replaceExisting = true) }
+    }
     private val zipExporter = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { transferViewModel.onExportPicked(it) }
     private val htmlExporter = registerForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { transferViewModel.onExportPicked(it) }
 
@@ -77,7 +81,10 @@ class MainActivity : ComponentActivity() {
                 WebShortcutsApp(
                     state = state, iconResolver = container.iconResolver, snackbarHostState = snackbar,
                     onQueryChange = viewModel::setQuery, onAdd = { viewModel.add() }, onEdit = viewModel::edit,
-                    onOpen = { if (!ChromeTabLauncher.open(this, it.url)) viewModel.notify("未找到可用浏览器，请先安装 Chrome 或其他浏览器") },
+                    onOpen = { bookmark ->
+                        val result = BrowserLauncher.open(this, bookmark)
+                        if (!result.opened) viewModel.notify(result.message ?: "暂时无法打开此快捷方式")
+                    },
                     onPin = viewModel::pin, onUpdateShortcut = viewModel::updateShortcut,
                     onRefresh = viewModel::refresh, onRefreshAll = viewModel::refreshAll, onDelete = viewModel::delete,
                     onDismissEditor = viewModel::dismissEditor, onTitleChange = viewModel::setTitle,
@@ -104,6 +111,14 @@ class MainActivity : ComponentActivity() {
                         create = viewModel::createTag, rename = viewModel::renameTag, delete = viewModel::deleteTag,
                     ),
                     onOpenTransfer = { if (state.reorder == null && !transferViewModel.open()) viewModel.notify("已有导入导出操作正在进行") },
+                    onBrowserChange = viewModel::setBrowser,
+                    onSourceFilterChange = viewModel::setSourceFilter,
+                    onImportLocal = {
+                        if (!state.importingLocal && !state.transferBusy) {
+                            try { localPagePicker.launch(arrayOf("*/*")) }
+                            catch (_: Exception) { viewModel.notify("无法打开文件选择器，请确认设备有可用的文件管理器") }
+                        }
+                    },
                 )
                 if (transfer.visible) TransferSheet(transfer, onDismiss = transferViewModel::close,
                     onChooseImport = {
@@ -125,7 +140,24 @@ class MainActivity : ComponentActivity() {
         acceptShare(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshBrowsers()
+    }
+
     private fun acceptShare(intent: Intent?) {
+        val document = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            else -> null
+        }
+        if (document?.scheme == "content") {
+            lifecycleScope.launch {
+                viewModel.state.first { !it.loading }
+                viewModel.importLocalPage(document)
+            }
+            return
+        }
         if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return
         val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty().take(8192)
         val url = Regex("https?://[^\\s<>]+", RegexOption.IGNORE_CASE).find(text)?.value

@@ -46,18 +46,19 @@ class UiScreenshotsTest {
         val source = landscapeFixture()
         val fit = processor.normalize(source, centerCrop = false)
         val cropped = processor.normalize(source, centerCrop = true)
+        // Keep the capture order deterministic and the awaited first icon in the visible lazy row.
         val fixtures = listOf(
             BookmarkItem(
                 id = "2bed5c71-95f5-4d9b-86d5-5a2a3c917d34", title = "GitHub", url = "https://github.com",
-                selectedIconSource = IconSourceMode.GENERATED,
+                selectedIconSource = IconSourceMode.GENERATED, createdAt = 3L,
             ),
             BookmarkItem(
                 id = "36bc7a49-0a31-4c2d-a6df-99d25fbff1a0", title = "Android 开发者", url = "https://developer.android.com",
-                selectedIconSource = IconSourceMode.AUTO,
+                selectedIconSource = IconSourceMode.AUTO, createdAt = 2L,
             ),
             BookmarkItem(
                 id = "55449913-ae1c-45f4-921f-d4892f61b9d7", title = "维基百科", url = "https://zh.wikipedia.org",
-                selectedIconSource = IconSourceMode.GENERATED,
+                selectedIconSource = IconSourceMode.GENERATED, createdAt = 1L,
             ),
         )
         compose.setContent {
@@ -110,6 +111,8 @@ class UiScreenshotsTest {
                 error = "未能获取高清图标，已使用默认字母图标", dirty = true,
             ))
         }
+        capture("editor_screen", "18_editor_details.png")
+        compose.onNodeWithText("未能获取高清图标，已使用默认字母图标").performScrollTo().assertIsDisplayed()
         capture("editor_screen", "04_editor_auto_fallback.png")
 
         compose.runOnIdle {

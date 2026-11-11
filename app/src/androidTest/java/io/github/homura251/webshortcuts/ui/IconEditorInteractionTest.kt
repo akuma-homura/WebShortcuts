@@ -137,7 +137,7 @@ class IconEditorInteractionTest {
             }
         }
 
-        compose.onNodeWithTag("launcher_preview", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("launcher_preview", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("full_canvas_preview", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag("safe_zone_overlay", useUnmergedTree = true).assertDoesNotExist()
 

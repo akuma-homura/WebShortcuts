@@ -29,6 +29,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.FolderOpen
+import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip
+import io.github.homura251.webshortcuts.ui.components.ExpressiveLoading
+import io.github.homura251.webshortcuts.ui.components.SectionHeader
+import io.github.homura251.webshortcuts.ui.components.ExpressiveVisibility
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
@@ -92,34 +97,44 @@ internal fun BookmarkCollection(
     tagActions: TagActions = TagActions(),
     onShowTagFilter: () -> Unit = {},
     onShowSorting: () -> Unit = {},
+    onImportLocal: () -> Unit = {},
+    onSourceFilterChange: (SourceFilter) -> Unit = {},
 ) {
     val locale = LocalConfiguration.current.locales[0]
-    val filtered = remember(state.bookmarks, state.tags, state.query, state.tagFilter, state.sorting, locale) {
+    val filtered = remember(state.bookmarks, state.tags, state.query, state.tagFilter, state.sorting, state.sourceFilter, locale) {
         LibraryOrdering.bookmarks(LibrarySnapshot(state.bookmarks, state.tags), state.query, state.tagFilter, state.sorting, locale)
+            .filter { when (state.sourceFilter) { SourceFilter.ALL -> true; SourceFilter.WEB -> !it.isLocal; SourceFilter.LOCAL -> it.isLocal } }
     }
     val orderedTags = remember(state.bookmarks, state.tags, state.sorting, locale) {
         LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
     }
-    val autoCount = state.bookmarks.count { it.selectedIconSource == IconSourceMode.AUTO }
+    val autoCount = state.bookmarks.count { !it.isLocal && it.selectedIconSource == IconSourceMode.AUTO }
     val grid = layoutMode == LayoutMode.GRID
     // Two narrow cells cannot accommodate enlarged text and both 48dp action targets.
     val columns = if (grid && LocalDensity.current.fontScale < 1.5f) 2 else 1
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         modifier = Modifier.widthIn(max = 760.dp).fillMaxSize().testTag("bookmark_collection"),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (state.bookmarks.isNotEmpty()) {
+            item(key = "collection_title", span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader(stringResource(R.string.home_collection_title), stringResource(R.string.home_collection_description))
+            }
             item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        CountBadge(stringResource(if (state.query.isBlank() && !state.tagFilter.active) R.string.bookmark_count else R.string.filtered_count,
-                            filtered.size), Icons.Default.Language)
-                        if (state.query.isBlank() && !state.tagFilter.active) CountBadge(stringResource(R.string.auto_count, autoCount), Icons.Default.Sync)
+                        if (state.query.isNotBlank() || state.tagFilter.active || state.sourceFilter != SourceFilter.ALL) {
+                            CountBadge(stringResource(R.string.filtered_count, filtered.size), Icons.Default.Search)
+                        } else {
+                            CountBadge(stringResource(R.string.bookmark_count, state.bookmarks.count { !it.isLocal }), Icons.Default.Language)
+                            val localCount = state.bookmarks.count { it.isLocal }
+                            if (localCount > 0) CountBadge(stringResource(R.string.home_local_count, localCount), Icons.Default.FolderOpen)
+                        }
                     }
                     IconButton(onClick = onShowSorting, enabled = !state.selectionMode && !state.transferBusy && !state.tagSaving && state.reorder == null,
                         modifier = Modifier.testTag("open_bookmark_sort")) {
@@ -136,16 +151,19 @@ internal fun BookmarkCollection(
         if (state.error != null) item(key = "load_error", span = { GridItemSpan(maxLineSpan) }) {
             ErrorNotice(state.error, title = stringResource(R.string.read_error_title))
         }
+        if (state.importingLocal) item(key = "local_import", span = { GridItemSpan(maxLineSpan) }) {
+            ExpressiveLoading(label = stringResource(R.string.local_document_importing))
+        }
         when {
             state.loading -> item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 64.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    CircularProgressIndicator()
+                    ExpressiveLoading()
                     Text(stringResource(R.string.loading_bookmarks), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             state.bookmarks.isEmpty() && state.error == null -> item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                EmptyBookmarks(onAdd)
+                EmptyBookmarks(onAdd, onImportLocal)
             }
             state.bookmarks.isNotEmpty() -> {
                 item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
@@ -153,6 +171,17 @@ internal fun BookmarkCollection(
                         Box(Modifier.weight(1f)) { BookmarkSearch(state.query, onQueryChange, !state.selectionMode) }
                         FilledTonalIconButton(onClick = onShowTagFilter, enabled = !state.selectionMode,
                             modifier = Modifier.testTag("open_tag_filter")) { Icon(Icons.AutoMirrored.Filled.Label, stringResource(R.string.filter_tags)) }
+                    }
+                }
+                item(key = "source_filters", span = { GridItemSpan(maxLineSpan) }) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SourceFilter.entries.forEach { source ->
+                            ExpressiveFilterChip(selected = state.sourceFilter == source,
+                                onClick = { onSourceFilterChange(source) },
+                                enabled = !state.selectionMode && state.reorder == null,
+                                label = { Text(stringResource(when (source) { SourceFilter.ALL -> R.string.source_all; SourceFilter.WEB -> R.string.source_web; SourceFilter.LOCAL -> R.string.source_local })) },
+                                modifier = Modifier.testTag("source_filter_${source.name}"))
+                        }
                     }
                 }
                 if (state.tagFilter.active) item(key = "tag_filters", span = { GridItemSpan(maxLineSpan) }) {
@@ -187,7 +216,7 @@ internal fun BookmarkCollection(
                         Icon(Icons.Default.SearchOff, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(stringResource(R.string.no_results_title), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.no_results_body), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { onQueryChange("") }, Modifier.padding(top = 12.dp), enabled = !state.selectionMode) { Text(stringResource(R.string.clear_search)) }
+                        TextButton(onClick = { onQueryChange(""); onSourceFilterChange(SourceFilter.ALL); tagActions.filter(TagFilter()) }, Modifier.padding(top = 12.dp), enabled = !state.selectionMode) { Text(stringResource(R.string.clear_search)) }
                     }
                 }
                 items(filtered, key = { it.id }, contentType = { "bookmark" }) { bookmark ->
@@ -201,6 +230,7 @@ internal fun BookmarkCollection(
                         onLongClick = { tagActions.select(bookmark) },
                         selectionMode = state.selectionMode, selected = bookmark.id in state.selectedIds,
                         onSelect = { tagActions.select(bookmark) }, interactionBlocked = state.transferBusy || state.tagSaving,
+                        browserName = browserLabel(bookmark.browserPackage, state.browsers),
                     )
                 }
             }

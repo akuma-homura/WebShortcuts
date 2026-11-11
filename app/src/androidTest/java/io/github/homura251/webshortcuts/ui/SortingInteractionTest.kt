@@ -54,7 +54,7 @@ class SortingInteractionTest {
         }
         compose.onNodeWithTag("open_bookmark_sort").performClick()
         compose.onNodeWithTag("sort_bookmarks_CREATED_AT").assertIsSelected()
-        compose.onNodeWithTag("sort_bookmarks_MANUAL").performClick()
+        clickSortOption("sort_bookmarks_MANUAL")
         compose.onNodeWithTag("organize_order").performClick()
         compose.onNodeWithTag("reorder_screen").assertIsDisplayed()
         compose.onNodeWithTag("cancel_reorder").performClick()
@@ -102,11 +102,11 @@ class SortingInteractionTest {
         } }
         compose.onNodeWithTag("sort_bookmarks_CREATED_AT").assertIsSelected()
         compose.onNodeWithTag("organize_order").assertDoesNotExist()
-        compose.onNodeWithTag("sort_bookmarks_TITLE").performClick()
+        clickSortOption("sort_bookmarks_TITLE")
         assertEquals(SortDirection.ASCENDING, preferences.bookmarkDirection)
-        compose.onNodeWithTag("sort_direction_DESCENDING").performClick()
+        clickSortOption("sort_direction_DESCENDING")
         assertEquals(SortDirection.DESCENDING, preferences.bookmarkDirection)
-        compose.onNodeWithTag("sort_bookmarks_MANUAL").performClick()
+        clickSortOption("sort_bookmarks_MANUAL")
         compose.onNodeWithTag("organize_order").assertIsDisplayed()
         compose.onNodeWithTag("sort_direction_DESCENDING").assertDoesNotExist()
     }
@@ -208,14 +208,21 @@ class SortingInteractionTest {
                     {}, {}, { layout = it }, {}, {}, {}, {}, {}, {}, {})
             }
         }
+        compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasTestTag("bookmark_card_site-0"))
         val newest = compose.onNodeWithTag("bookmark_card_site-2").fetchSemanticsNode().boundsInRoot
         val oldest = compose.onNodeWithTag("bookmark_card_site-0").fetchSemanticsNode().boundsInRoot
         assertTrue(newest.top < oldest.top)
+        compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasTestTag("layout_toggle"))
         compose.onNodeWithTag("layout_toggle").performClick()
         compose.onNodeWithTag("bookmark_card_site-2").assertIsDisplayed()
         assertEquals(LayoutMode.GRID, layout)
         compose.runOnIdle { home = home.copy(selectionMode = true) }
         compose.onNodeWithTag("open_bookmark_sort").assertIsNotEnabled()
+    }
+
+    private fun clickSortOption(tag: String) {
+        compose.onNodeWithTag("sort_options").performScrollToNode(hasTestTag(tag))
+        compose.onNodeWithTag(tag).performClick()
     }
 
     private fun home(count: Int): HomeUiState {

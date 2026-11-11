@@ -32,7 +32,7 @@ class BackupArchiveTest {
     }
 
     @Test fun unknownVersionsMissingReferencesAndExtraFilesFailClosed() {
-        assertRejected(base().apply { this["manifest.json"] = manifest(2) })
+        assertRejected(base().apply { this["manifest.json"] = manifest(99) })
         val item = BookmarkItem(title = "Site", url = "https://example.com/", customImagePath = "icons/custom/missing.png")
         assertRejected(base().apply { this["bookmarks.json"] = BookmarkCodec.encode(listOf(item)).toByteArray() })
         assertRejected(base().apply { this["icons/auto/extra.png"] = byteArrayOf(1) })

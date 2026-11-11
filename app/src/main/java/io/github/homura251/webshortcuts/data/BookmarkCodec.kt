@@ -7,11 +7,13 @@ import io.github.homura251.webshortcuts.icons.CropRect
 
 /** Pure serialization, kept separate from Android I/O for deterministic migration tests. */
 object BookmarkCodec {
-    const val SCHEMA_VERSION = 4
+    const val SCHEMA_VERSION = 5
     const val MAX_BOOKMARKS = 2000
     const val MAX_JSON_BYTES = 4 * 1024 * 1024
     private val iconPath = Regex("icons/(auto|custom)/[a-zA-Z0-9._-]+\\.(webp|png)")
     private val originalPath = Regex("icons/original/[a-zA-Z0-9_-]{1,100}\\.png")
+    private val localFile = Regex("[A-Za-z0-9_-]{1,100}\\.(html|mhtml)")
+    private val packageName = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
 
     fun encode(items: List<BookmarkItem>): String = encode(LibrarySnapshot(items))
 
@@ -27,6 +29,10 @@ object BookmarkCodec {
                 put("id", item.id)
                 put("title", item.title)
                 put("url", item.url)
+                put("sourceType", item.sourceType.name)
+                put("browserPackage", item.browserPackage ?: JSONObject.NULL)
+                put("localFileName", item.localFileName ?: JSONObject.NULL)
+                put("localDisplayName", item.localDisplayName ?: JSONObject.NULL)
                 put("selectedIconSource", item.selectedIconSource.name)
                 put("autoImagePath", item.autoImagePath ?: JSONObject.NULL)
                 put("customImagePath", item.customImagePath ?: JSONObject.NULL)
@@ -73,7 +79,13 @@ object BookmarkCodec {
         val seen = mutableSetOf<String>()
         val items = (0 until records.length()).map { index ->
             val record = records.getJSONObject(index)
-            val url = UrlNormalizer.normalize(record.getString("url"))
+            val sourceType = if (version < 5) BookmarkSourceType.WEB else {
+                val source = record.nullableString("sourceType") ?: BookmarkSourceType.WEB.name
+                BookmarkSourceType.entries.firstOrNull { it.name == source }
+                    ?: throw IllegalArgumentException("收藏内容类型无效")
+            }
+            val url = if (sourceType == BookmarkSourceType.WEB) UrlNormalizer.normalize(record.getString("url"))
+                else record.optString("url", "")
             val id = record.nullableString("id") ?: record.nullableString("uuid")
                 // Deterministic legacy migration avoids replacing shortcut IDs on every app launch.
                 ?: UUID.nameUUIDFromBytes("webshortcuts:$index:$url".toByteArray(Charsets.UTF_8)).toString()
@@ -84,8 +96,12 @@ object BookmarkCodec {
             BookmarkItem(
                 id = id,
                 title = record.nullableString("title") ?: record.nullableString("name")
-                    ?: URIHostFallback.host(url),
+                    ?: record.nullableString("localDisplayName")?.take(160) ?: URIHostFallback.host(url),
                 url = url,
+                sourceType = sourceType,
+                browserPackage = if (version >= 5) record.nullableString("browserPackage") else null,
+                localFileName = if (version >= 5) record.nullableString("localFileName") else null,
+                localDisplayName = if (version >= 5) record.nullableString("localDisplayName") else null,
                 selectedIconSource = mode,
                 autoImagePath = record.nullableString("autoImagePath")?.takeIf(::isSafeIconPath),
                 customImagePath = record.nullableString("customImagePath")?.takeIf(::isSafeIconPath),
@@ -129,7 +145,21 @@ object BookmarkCodec {
         require(item.title.isNotBlank() && item.title.length <= 160 && item.title.none { it.isISOControl() }) {
             "名称应为 1 至 160 个字符，且不能包含换行"
         }
-        UrlNormalizer.normalize(item.url)
+        if (item.isLocal) {
+            require(item.url.isEmpty()) { "本地网页不能包含在线网址" }
+            require(item.browserPackage == null) { "本地网页使用离线阅读器打开" }
+            require(item.localFileName?.let(localFile::matches) == true) { "本地网页文件路径无效" }
+            val expectedExtension = if (item.sourceType == BookmarkSourceType.HTML) ".html" else ".mhtml"
+            require(item.localFileName?.endsWith(expectedExtension) == true) { "本地网页类型与文件不匹配" }
+            require(item.localDisplayName != null && item.localDisplayName.isNotBlank() &&
+                item.localDisplayName.length <= 255 && item.localDisplayName.none(Char::isISOControl)) { "本地网页文件名称无效" }
+        } else {
+            UrlNormalizer.normalize(item.url)
+            require(item.localFileName == null && item.localDisplayName == null) { "网站不能引用本地网页文件" }
+            require(item.browserPackage == null || (item.browserPackage.length <= 255 && packageName.matches(item.browserPackage))) {
+                "浏览器标识无效"
+            }
+        }
         require(item.imageVersion >= 1) { "图标版本无效" }
         require(item.autoImagePath == null || isSafeIconPath(item.autoImagePath)) { "自动图标路径无效" }
         require(item.customImagePath == null || isSafeIconPath(item.customImagePath)) { "自定义图标路径无效" }

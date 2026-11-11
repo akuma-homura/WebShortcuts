@@ -36,6 +36,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.*
+import io.github.homura251.webshortcuts.ui.components.ConnectedChoiceItem
+import io.github.homura251.webshortcuts.ui.components.connectedItemShape
+import io.github.homura251.webshortcuts.ui.components.ExpressiveButton as Button
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip as FilterChip
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
 
@@ -64,7 +69,9 @@ internal fun sortLabel(value: LibrarySortPreferences, target: OrderTarget): Stri
 internal fun SortingSheet(home: HomeUiState, target: OrderTarget, query: String, onDismiss: () -> Unit, actions: SortActions) {
     TagPanel(stringResource(if (target == OrderTarget.BOOKMARKS) R.string.sort_bookmarks else R.string.sort_tags), onDismiss) {
         val available = !home.loading && home.error == null && !home.transferBusy && !home.selectionMode && !home.tagSaving
-        val count = if (target == OrderTarget.BOOKMARKS) LibraryTags.filter(home.bookmarks, home.tags, home.query, home.tagFilter).size
+        val count = if (target == OrderTarget.BOOKMARKS) LibraryTags.filter(home.bookmarks, home.tags, home.query, home.tagFilter).count {
+            when (home.sourceFilter) { SourceFilter.ALL -> true; SourceFilter.WEB -> !it.isLocal; SourceFilter.LOCAL -> it.isLocal }
+        }
             else home.tags.count { it.name.contains(query.trim(), true) }
         SortingContent(home.sorting, target, actions.change, { onDismiss(); actions.begin(target, query) }, available, count >= 2)
     }
@@ -79,7 +86,8 @@ internal fun ColumnScope.SortingContent(value: LibrarySortPreferences, target: O
     val direction = if (bookmarks) value.bookmarkDirection else value.tagDirection
     Text(stringResource(R.string.sort_local_hint), style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
-    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("sort_options")) {
+    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).testTag("sort_options"),
+        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
         if (bookmarks) items(BookmarkSortField.entries.size) { index ->
             val field = BookmarkSortField.entries[index]
             SortChoice(stringResource(when (field) {
@@ -87,7 +95,7 @@ internal fun ColumnScope.SortingContent(value: LibrarySortPreferences, target: O
                 BookmarkSortField.UPDATED_AT -> R.string.sort_updated
                 BookmarkSortField.TITLE -> R.string.sort_name
                 BookmarkSortField.MANUAL -> R.string.sort_manual
-            }), field == value.bookmarks, enabled, "sort_bookmarks_${field.name}") {
+            }), field == value.bookmarks, enabled, "sort_bookmarks_${field.name}", index, BookmarkSortField.entries.size) {
                 onChange(value.copy(bookmarks = field, bookmarkDirection = if (field == value.bookmarks) value.bookmarkDirection
                     else if (field == BookmarkSortField.TITLE) SortDirection.ASCENDING else SortDirection.DESCENDING))
             }
@@ -97,7 +105,7 @@ internal fun ColumnScope.SortingContent(value: LibrarySortPreferences, target: O
                 TagSortField.NAME -> R.string.sort_name
                 TagSortField.COUNT -> R.string.sort_count
                 TagSortField.MANUAL -> R.string.sort_manual
-            }), field == value.tags, enabled, "sort_tags_${field.name}") {
+            }), field == value.tags, enabled, "sort_tags_${field.name}", index, TagSortField.entries.size) {
                 onChange(value.copy(tags = field, tagDirection = if (field == value.tags) value.tagDirection
                     else if (field == TagSortField.NAME) SortDirection.ASCENDING else SortDirection.DESCENDING))
             }
@@ -122,12 +130,8 @@ internal fun ColumnScope.SortingContent(value: LibrarySortPreferences, target: O
 }
 
 @Composable
-private fun SortChoice(label: String, selected: Boolean, enabled: Boolean, key: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, enabled = enabled,
-        role = Role.RadioButton, onClick = onClick).testTag(key), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick = null, enabled = enabled)
-        Text(label, Modifier.weight(1f).padding(vertical = 8.dp), style = MaterialTheme.typography.bodyLarge)
-    }
+private fun SortChoice(label: String, selected: Boolean, enabled: Boolean, key: String, index: Int, count: Int, onClick: () -> Unit) {
+    ConnectedChoiceItem(index, count, label, selected, onClick, enabled = enabled, modifier = Modifier.testTag(key))
 }
 
 @Composable
@@ -153,7 +157,8 @@ internal fun ReorderContent(home: HomeUiState, actions: SortActions, modifier: M
                 Text(stringResource(if (draft.saving) R.string.organize_saving else R.string.organize_done)) } })
     }) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).widthIn(max = 760.dp).fillMaxSize()) {
-            Text(stringResource(if (draft.query.isNotBlank() || draft.filter.active) R.string.organize_filtered_hint else R.string.organize_hint),
+            Text(stringResource(if (draft.query.isNotBlank() || draft.filter.active || draft.sourceFilter != SourceFilter.ALL)
+                R.string.organize_filtered_hint else R.string.organize_hint),
                 Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             draft.error?.let { Text(it, Modifier.padding(horizontal = 16.dp).testTag("reorder_error"),
@@ -276,7 +281,7 @@ private fun ReorderList(home: HomeUiState, actions: SortActions, modifier: Modif
                     if (index > 0) add(CustomAccessibilityAction(up) { actions.move(id, index - 1); true })
                     if (index < draft.orderedIds.lastIndex) add(CustomAccessibilityAction(down) { actions.move(id, index + 1); true })
                 }
-            }, shape = MaterialTheme.shapes.medium, color = if (moving) MaterialTheme.colorScheme.secondaryContainer
+            }, shape = connectedItemShape(index, draft.orderedIds.size), color = if (moving) MaterialTheme.colorScheme.secondaryContainer
                 else MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = if (moving) 6.dp else 0.dp) {
                 Row(Modifier.heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(start = 12.dp, top = 8.dp, bottom = 8.dp)) {

@@ -35,7 +35,8 @@ object LibraryTags {
         val matchingTags = if (q.isEmpty()) emptySet() else tags.filter { it.name.contains(q, true) }.map { it.id }.toSet()
         return items.filter { item ->
             (if (filter.untagged) item.tagIds.isEmpty() else item.tagIds.containsAll(filter.ids)) &&
-                (q.isEmpty() || item.title.contains(q, true) || item.url.contains(q, true) || item.tagIds.any(matchingTags::contains))
+                (q.isEmpty() || item.title.contains(q, true) || item.url.contains(q, true) ||
+                    item.localDisplayName?.contains(q, true) == true || item.tagIds.any(matchingTags::contains))
         }
     }
 

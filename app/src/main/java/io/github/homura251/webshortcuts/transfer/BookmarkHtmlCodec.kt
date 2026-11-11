@@ -50,12 +50,14 @@ internal object BookmarkHtmlCodec {
     }
 
     fun encode(items: List<BookmarkItem>): ByteArray {
-        // HTML intentionally carries no catalog or associations.
-        BookmarkCodec.encode(items.map { it.copy(tagIds = emptySet()) }) // Apply the same field and collection limits as local storage.
+        // Standard browser-bookmark HTML cannot carry local documents or browser choices.
+        // TransferManager reports the omitted document count and recommends ZIP for a full copy.
+        val websites = items.filterNot(BookmarkItem::isLocal)
+        BookmarkCodec.encode(websites.map { it.copy(tagIds = emptySet()) })
         val html = buildString {
             append("<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n")
             append("<TITLE>WebShortcuts Bookmarks</TITLE>\n<H1>WebShortcuts</H1>\n<DL><p>\n")
-            items.forEach { item ->
+            websites.forEach { item ->
                 append("    <DT><A HREF=\"").append(escape(item.url)).append('"')
                 if (item.createdAt > 0) append(" ADD_DATE=\"").append(item.createdAt / 1000).append('"')
                 if (item.updatedAt > 0) append(" LAST_MODIFIED=\"").append(item.updatedAt / 1000).append('"')

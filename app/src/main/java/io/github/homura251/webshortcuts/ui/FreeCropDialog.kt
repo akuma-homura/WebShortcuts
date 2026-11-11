@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,14 +18,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +58,12 @@ import androidx.compose.ui.window.DialogProperties
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.icons.CropRect
 import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
+import io.github.homura251.webshortcuts.ui.components.ExpressiveButton as Button
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip as FilterChip
+import io.github.homura251.webshortcuts.ui.components.expressiveEntrance
+import io.github.homura251.webshortcuts.ui.components.SectionHeader
+import io.github.homura251.webshortcuts.ui.components.TonalCard
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -98,13 +102,13 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
             crop.centerX + width / 2f, crop.centerY + height / 2f, minimum.width, minimum.height)
     }
 
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.padding(12.dp)
-            .widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (screenHeight - 48).coerceAtLeast(200).dp)) {
+            .widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (screenHeight - 48).coerceAtLeast(200).dp).expressiveEntrance()) {
             Column {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.free_crop_title), style = MaterialTheme.typography.titleLarge,
+                    Text(stringResource(R.string.free_crop_title), style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.semantics { heading() })
                     Text(stringResource(R.string.free_crop_help), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -126,8 +130,7 @@ internal fun FreeCropContent(source: Bitmap, initialCrop: CropRect?, onDismiss: 
                     CropSelection(source, crop, { crop = it }, minimum.width, minimum.height, aspect,
                         dimensions, Modifier.fillMaxWidth().height(previewHeight))
                     Text(dimensions, style = MaterialTheme.typography.bodySmall)
-                    Text(stringResource(R.string.free_crop_precise), style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.semantics { heading() })
+                    SectionHeader(stringResource(R.string.free_crop_precise))
 
                     val minWidth = if (aspect == null) minimum.width else maxOf(minimum.width, minimum.height * aspect)
                     val maxWidth = if (aspect == null) 1f else min(1f, aspect)
@@ -195,8 +198,7 @@ internal fun FreeCropEditorPreview() {
 @Composable
 private fun CropSlider(label: String, value: Float, enabled: Boolean, tag: String, modifier: Modifier = Modifier,
                        onValueChange: (Float) -> Unit) {
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+    TonalCard(modifier, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
             val percentage = stringResource(R.string.free_crop_percent, (value * 100).roundToInt())
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalArrangement = Arrangement.spacedBy(2.dp), itemVerticalAlignment = Alignment.CenterVertically) {
@@ -212,7 +214,6 @@ private fun CropSlider(label: String, value: Float, enabled: Boolean, tag: Strin
                     contentDescription = label
                     stateDescription = percentage
                 })
-        }
     }
 }
 

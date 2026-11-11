@@ -1,6 +1,6 @@
 package io.github.homura251.webshortcuts.ui
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
@@ -27,18 +27,18 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
+import io.github.homura251.webshortcuts.ui.components.ChoiceChipSurface
 
 /** The visible chip is compact; the entire 48dp cell remains an independent touch target. */
 @Composable
 internal fun CompactTagChoice(name: String, selected: Boolean, count: Int?, key: String,
     enabled: Boolean = true, fill: Boolean = true, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Box(Modifier.then(if (fill) Modifier.fillMaxWidth() else Modifier).heightIn(min = 48.dp).widthIn(min = 48.dp)
-        .toggleable(selected, enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() }).testTag(key),
+        .toggleable(value = selected, interactionSource = interaction, indication = ripple(),
+            enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() }).testTag(key),
         contentAlignment = Alignment.CenterStart) {
-        Surface(shape = MaterialTheme.shapes.small,
-            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        ChoiceChipSurface(selected, interaction) {
             Row(Modifier.then(if (fill) Modifier.fillMaxWidth() else Modifier).heightIn(min = 28.dp)
                 .padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -114,5 +114,6 @@ internal fun TagSearchInput(value: String, onChange: (String) -> Unit,
             }
         },
         enabled = !busy, isError = error, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium,
+        shape = MaterialTheme.shapes.large,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { search() }))
 }
