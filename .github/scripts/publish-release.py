@@ -101,7 +101,11 @@ def test_counts(directory):
 
 def package():
     value = validation()
-    tools = Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0'
+    build_tools_dir = Path(os.environ.get('ANDROID_HOME', '')) / 'build-tools'
+    if build_tools_dir.exists() and list(build_tools_dir.iterdir()):
+        tools = sorted(build_tools_dir.iterdir(), key=lambda p: p.name)[-1]
+    else:
+        tools = Path(os.environ.get('ANDROID_HOME', '')) / 'build-tools/36.0.0'
     paths = {'debug': Path('downloaded-apks/WebShortcuts-debug/app-debug.apk'),
              'release-unsigned': Path('downloaded-apks/WebShortcuts-release-unsigned/app-release-unsigned.apk')}
     with zipfile.ZipFile(paths['release-unsigned']) as apk:
@@ -116,6 +120,8 @@ def package():
     output = Path('release-assets')
     output.mkdir(exist_ok=False)
     value['apks'] = []
+    version = ""
+    version_code = 0
     for mode, path in paths.items():
         badging = command(str(tools / 'aapt'), 'dump', 'badging', str(path))
         version = re.search(r"versionName='([^']+)'", badging).group(1)
@@ -129,12 +135,44 @@ def package():
     certificates = command(str(tools / 'apksigner'), 'verify', '--print-certs', str(paths['debug']))
     value['debugCertificateSha256'] = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', certificates).group(1)
     value['releaseSigned'] = False
+
+    signed_name = None
+    keystore_base64 = os.environ.get('RELEASE_KEYSTORE_BASE64')
+    keystore_pass = os.environ.get('RELEASE_KEYSTORE_PASSWORD')
+    key_alias = os.environ.get('RELEASE_KEY_ALIAS')
+    key_pass = os.environ.get('RELEASE_KEY_PASSWORD')
+    if keystore_base64 and keystore_pass and key_alias and key_pass:
+        import base64
+        ks_file = Path('temp-release.jks')
+        try:
+            ks_file.write_bytes(base64.b64decode(keystore_base64))
+            signed_apk = Path('temp-release-signed.apk')
+            command(str(tools / 'apksigner'), 'sign',
+                    '--ks', str(ks_file),
+                    '--ks-key-alias', key_alias,
+                    '--ks-pass', f'pass:{keystore_pass}',
+                    '--key-pass', f'pass:{key_pass}',
+                    '--out', str(signed_apk),
+                    str(paths['release-unsigned']))
+            signed_name = f'{prefix}-release.apk'
+            shutil.copyfile(signed_apk, output / signed_name)
+            signed_certs = command(str(tools / 'apksigner'), 'verify', '--print-certs', str(signed_apk))
+            value['releaseCertificateSha256'] = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', signed_certs).group(1)
+            value['releaseSigned'] = True
+            value['apks'].append({'file': signed_name, 'sha256': hashlib.sha256(signed_apk.read_bytes()).hexdigest(),
+                                  'bytes': signed_apk.stat().st_size, 'versionName': version, 'versionCode': version_code})
+            signed_apk.unlink()
+        finally:
+            if ks_file.exists():
+                ks_file.unlink()
+
     (output / f'{prefix}-BUILD-INFO.json').write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     hashes = ''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in sorted(output.iterdir()))
     (output / f'{prefix}-SHA256SUMS.txt').write_text(hashes)
     debug_name = value['apks'][0]['file']
     jvm, device = value['tests']['jvm'], value['tests']['android35']
-    notes = f'''WebShortcuts Android 构建产物，来源版本、提交及验证记录如下。\n\n版本：{version}（{version_code}） · 提交：`{value['commit']}`\n\n### 下载\n\n- **直接安装**：`{debug_name}`，由 GitHub Actions 构建并使用 CI 测试签名。\n- `release-unsigned.apk`：R8 未签名包，需要自行正式签名。\n- `SHA256SUMS.txt` 与 `BUILD-INFO.json`：实际文件校验值、来源提交及验证记录。\n\nCI 测试签名与此前本地交付包不同。更换签名前，请先在旧版导出 ZIP 备份，再卸载旧版安装；如签名相同可直接覆盖安装。\n\n### 验证\n\n[Android CI]({value['buildUrl']}) 已成功：JVM/Robolectric/Compose {jvm['tests']} 项测试，Android 35 模拟器 {device['tests']} 项测试（跳过 {device['skipped']} 项），失败和错误均为 0。Debug、R8 Release、Lint 及权限检查通过。模拟器结果不代表 OEM 真机验收。\n'''
+    signed_release_note = f"- **正式签名发布版**：`{signed_name}`，使用仓库配置的正式发布密钥签名，支持后续版本直接覆盖更新。\n" if signed_name else ""
+    notes = f'''WebShortcuts Android 构建产物，来源版本、提交及验证记录如下。\n\n版本：{version}（{version_code}） · 提交：`{value['commit']}`\n\n### 下载\n\n{signed_release_note}- **直接安装（CI 测试版）**：`{debug_name}`，由 GitHub Actions 构建并使用 CI 测试签名。\n- `release-unsigned.apk`：R8 未签名包，需要自行正式签名。\n- `SHA256SUMS.txt` 与 `BUILD-INFO.json`：实际文件校验值、来源提交及验证记录。\n\nCI 测试签名与此前本地交付包不同。更换签名前，请先在旧版导出 ZIP 备份，再卸载旧版安装；如签名相同可直接覆盖安装。\n\n### 验证\n\n[Android CI]({value['buildUrl']}) 已成功：JVM/Robolectric/Compose {jvm['tests']} 项测试，Android 35 模拟器 {device['tests']} 项测试（跳过 {device['skipped']} 项），失败和错误均为 0。Debug、R8 Release、Lint 及权限检查通过。模拟器结果不代表 OEM 真机验收。\n'''
     Path('RELEASE-NOTES.md').write_text(notes)
     print(f'Prepared {len(list(output.iterdir()))} immutable assets for {value["tag"]}')
 

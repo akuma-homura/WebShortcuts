@@ -67,6 +67,31 @@ jobs:
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Sign release APK
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > release.jks
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" sign \
+            --ks release.jks \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass "pass:$RELEASE_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$RELEASE_KEY_PASSWORD" \
+            --out app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          rm -f release.jks
+      - name: Upload release APK (signed)
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebShortcuts-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -184,6 +209,11 @@ jobs:
           packages: build-tools;36.0.0
           log-accepted-android-sdk-licenses: false
       - name: Package APKs, checksums and provenance
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: python3 .github/scripts/publish-release.py package
       - name: Upload, download-verify and publish release
         run: python3 .github/scripts/publish-release.py publish
