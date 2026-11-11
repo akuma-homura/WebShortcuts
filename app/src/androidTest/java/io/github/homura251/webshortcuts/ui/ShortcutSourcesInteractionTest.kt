@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -65,10 +66,10 @@ class ShortcutSourcesInteractionTest {
     @Test fun captureExpressiveOnlineAndOfflineCollectionAndEditor() {
         val resolver = IconResolver(context, IconStore(context), IconProcessor())
         val fixture = listOf(
-            BookmarkItem(title = "GitHub · 工作账号", url = "https://github.com", selectedIconSource = IconSourceMode.GENERATED, browserPackage = "com.android.chrome"),
-            BookmarkItem(title = "GitHub · 个人账号", url = "https://github.com", selectedIconSource = IconSourceMode.GENERATED, browserPackage = "com.chrome.beta"),
+            BookmarkItem(title = "GitHub · 工作账号", url = "https://github.com", selectedIconSource = IconSourceMode.GENERATED, browserPackage = "com.android.chrome", createdAt = 3L),
+            BookmarkItem(title = "GitHub · 个人账号", url = "https://github.com", selectedIconSource = IconSourceMode.GENERATED, browserPackage = "com.chrome.beta", createdAt = 2L),
             BookmarkItem(title = "旅行手记", url = "", selectedIconSource = IconSourceMode.GENERATED,
-                sourceType = BookmarkSourceType.MHTML, localFileName = "fixture.mhtml", localDisplayName = "京都旅行.mhtml"),
+                sourceType = BookmarkSourceType.MHTML, localFileName = "fixture.mhtml", localDisplayName = "京都旅行.mhtml", createdAt = 1L),
         )
         val state = mutableStateOf(HomeUiState(bookmarks = fixture, loading = false, browsers = browsers))
         val dark = mutableStateOf(false)
@@ -81,12 +82,18 @@ class ShortcutSourcesInteractionTest {
                     onSourceFilterChange = { state.value = state.value.copy(sourceFilter = it) })
             }
         }
+        compose.onNodeWithText("2 个网站").assertIsDisplayed()
+        compose.onNodeWithText("1 个离线网页").assertIsDisplayed()
+        awaitIcons(fixture.take(2))
         capture("home_screen", "20_expressive_sources_light.png")
         compose.runOnIdle { dark.value = true }
+        awaitIcons(fixture.take(2))
         capture("home_screen", "21_expressive_sources_dark.png")
         compose.onNodeWithTag("source_filter_LOCAL").performScrollTo().performClick()
         compose.onNodeWithTag("source_filter_LOCAL").assertIsSelected()
+        compose.onNodeWithText("找到 1 项收藏").assertIsDisplayed()
         compose.onNodeWithText("京都旅行.mhtml").assertIsDisplayed()
+        awaitIcons(listOf(fixture.last()))
         capture("home_screen", "22_offline_collection.png")
         compose.runOnIdle {
             dark.value = false
@@ -97,6 +104,16 @@ class ShortcutSourcesInteractionTest {
         }
         compose.onNodeWithTag("local_document_name").assertIsDisplayed()
         capture("editor_screen", "23_offline_editor.png")
+    }
+
+    private fun awaitIcons(bookmarks: List<BookmarkItem>) {
+        compose.waitUntil(timeoutMillis = 5_000) {
+            bookmarks.all { bookmark ->
+                compose.onAllNodesWithTag("bookmark_icon_${bookmark.id}", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+        compose.waitForIdle()
     }
 
     private fun capture(tag: String, name: String) {

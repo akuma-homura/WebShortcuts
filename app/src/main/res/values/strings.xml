@@ -73,7 +73,7 @@
     <string name="preview_placeholder">W</string>
     <string name="refresh_status">正在更新自动图标，仍可正常浏览收藏。</string>
     <string name="read_error_title">暂时无法读取收藏</string>
-    <string name="filtered_count">找到 %1$d 个网站</string>
+    <string name="filtered_count">找到 %1$d 项收藏</string>
     <string name="custom_framing">图片取景</string>
     <string name="crop_fit">完整图标</string>
     <string name="crop_center">1:1 居中</string>

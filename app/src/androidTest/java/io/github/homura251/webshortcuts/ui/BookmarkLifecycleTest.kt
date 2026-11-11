@@ -1,14 +1,17 @@
 package io.github.homura251.webshortcuts.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
@@ -66,6 +69,7 @@ class BookmarkLifecycleTest {
         compose.waitUntil(timeoutMillis = 5_000) { viewModel.state.value.editor?.mode == IconSourceMode.GENERATED }
         replaceField(R.string.url_label, originalUrl)
         replaceField(R.string.title_label, originalTitle)
+        finishEditing()
         compose.onNodeWithText(context.getString(R.string.save)).assertIsDisplayed().performClick()
         compose.waitUntil(timeoutMillis = 10_000) {
             viewModel.state.value.editor == null && container.repository.bookmarks.value.any { it.title == originalTitle }
@@ -93,7 +97,7 @@ class BookmarkLifecycleTest {
         // Send a real system Back event to the full-screen dialog after closing the IME.
         // Cancelling the discard prompt must keep both draft fields and leave disk unchanged.
         // The Activity underneath the editor cannot take focus while its dialog is open.
-        Espresso.onView(isRoot()).inRoot(isDialog()).perform(closeSoftKeyboard())
+        finishEditing()
         Espresso.onView(isRoot()).inRoot(isDialog()).perform(pressBack())
         compose.onNodeWithText(context.getString(R.string.discard_title)).assertIsDisplayed()
         assertPersisted(created.id, originalTitle, originalUrl)
@@ -164,10 +168,22 @@ class BookmarkLifecycleTest {
             .performScrollTo().performClick().performTextReplacement(value)
     }
 
+    private fun finishEditing() {
+        // Exercise the editor's own IME action and finish native IME work before changing windows.
+        val titleField = compose.onNode(hasSetTextAction() and hasText(context.getString(R.string.title_label)))
+        titleField.performImeAction()
+        titleField.assertIsNotFocused()
+        Espresso.onView(isRoot()).inRoot(isDialog()).perform(closeSoftKeyboard())
+    }
+
     private fun openMenu(title: String) {
         val description = context.getString(R.string.site_options, title)
         compose.onNodeWithTag("bookmark_collection").performScrollToNode(hasContentDescription(description))
-        compose.onNodeWithContentDescription(description).performClick()
+        compose.onNodeWithContentDescription(description).performScrollTo().assertIsDisplayed().performClick()
+        // Popup windows attach outside the Activity's Compose root after the touch is dispatched.
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodes(isPopup()).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun persisted(id: String): BookmarkItem? = runBlocking {

@@ -128,9 +128,13 @@ internal fun BookmarkCollection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        CountBadge(stringResource(if (state.query.isBlank() && !state.tagFilter.active) R.string.bookmark_count else R.string.filtered_count,
-                            filtered.size), Icons.Default.Language)
-                        if (state.bookmarks.any { it.isLocal }) CountBadge(stringResource(R.string.home_local_count, state.bookmarks.count { it.isLocal }), Icons.Default.FolderOpen)
+                        if (state.query.isNotBlank() || state.tagFilter.active || state.sourceFilter != SourceFilter.ALL) {
+                            CountBadge(stringResource(R.string.filtered_count, filtered.size), Icons.Default.Search)
+                        } else {
+                            CountBadge(stringResource(R.string.bookmark_count, state.bookmarks.count { !it.isLocal }), Icons.Default.Language)
+                            val localCount = state.bookmarks.count { it.isLocal }
+                            if (localCount > 0) CountBadge(stringResource(R.string.home_local_count, localCount), Icons.Default.FolderOpen)
+                        }
                     }
                     IconButton(onClick = onShowSorting, enabled = !state.selectionMode && !state.transferBusy && !state.tagSaving && state.reorder == null,
                         modifier = Modifier.testTag("open_bookmark_sort")) {

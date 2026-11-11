@@ -12,6 +12,11 @@
     <string name="browser_unavailable">此浏览器未安装或不可用，请重新选择</string>
     <string name="browser_empty">暂未发现可用浏览器。安装后返回应用即可选择。</string>
     <string name="local_document_title">离线网页</string>
+    <string name="editor_new_local_title">添加离线网页</string>
+    <string name="editor_edit_local_title">编辑离线网页</string>
+    <string name="local_document_details">网页信息</string>
+    <string name="local_document_name_label">网页名称</string>
+    <string name="local_document_name_hint">为离线网页起个容易辨认的名字</string>
     <string name="local_document_ready">已保存到应用 · 可离线查看</string>
     <string name="local_document_hint">支持 HTML、MHTML 和 MHT。HTML 中未包含的外部图片、样式不会离线下载；完整网页可导入 MHTML 存档。</string>
     <string name="local_document_importing">正在导入网页…</string>

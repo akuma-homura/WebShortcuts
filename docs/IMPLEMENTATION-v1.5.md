@@ -13,7 +13,7 @@
 | 5 本地网页 | SAF 导入、受限私有文件存储、离线阅读、桌面路由 | 原授权失效仍可查看；MHTML 嵌入资源实际渲染；缺失与损坏可恢复 |
 | 6 数据与回归 | schema 5、ZIP v2、迁移、并发与回滚 | 旧数据/备份可用，新增字段和字节往返，完整构建与设备测试 |
 
-阶段 1–6 的代码与测试已实现；实际执行结果在本文件末尾和对应 CI 运行中记录。实现不等于验证通过。
+阶段 1–6 的代码与测试已实现。首次完整验证及发现的问题见下文；后续提交的准确状态以 [PR #7 的最新检查](https://github.com/akuma-homura/WebShortcuts/pull/7/checks)为准。
 
 ## 决策
 
@@ -25,4 +25,26 @@
 
 ## 验证证据
 
-待执行结果回填：Debug/Release 构建、JVM 单元测试、Lint、Android 35 设备交互测试、设备截图。真实第三方登录与 OEM 启动器属于目标设备验收范围，不由模拟 Intent 测试替代。
+### 首次完整验证：2026-11-11
+
+对应提交 `c521e0679342a119d4e8ff5a480f8ec89078fb6f`，见 [Android CI #53](https://github.com/akuma-homura/WebShortcuts/actions/runs/42960740724)。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| Debug APK 构建 | 通过，可安装 APK 已生成 |
+| JVM 测试 | 42 个测试套件、285 项测试全部通过，0 跳过 |
+| Android Lint | 0 错误、54 条非阻断建议；已检查新增功能相关项 |
+| Release / R8 | 通过，生成未签名 Release APK |
+| APK 权限检查 | 通过，未增加宽泛存储或全应用查询权限 |
+| Android 35 设备测试 | 首轮 50 项中 47 项通过，3 项失败，原因和修复如下 |
+| 设备截图 | 生成 24 张，已检查明暗首页、网格、编辑器、外观及大字体布局 |
+
+首轮回归发现并修复的问题：
+
+- 离线页面测试原先通过 `evaluateJavascript` 检查 DOM，但 HTML/MHTML sandbox 会阻止该测试脚本。改用 WebView 原生标题与文本查找，保持生产脚本限制；MHTML 的内嵌 PNG 和归档 CSS 通过实际渲染像素验证。网络观察覆盖完整页面加载。
+- 编辑器曾在 Dialog 外读取 `LocalFocusManager`，导致清焦点操作落到底层 Activity。现从 Dialog 内获取焦点管理器，保存前清焦点；生命周期测试验证真实 IME Done、失焦、Activity 重建及菜单弹窗。
+- 截图检查发现混合列表把本地页面计入“网站数”。现在线网站与离线网页独立计数，筛选状态显示匹配收藏数；截图等待异步图标，使用固定夹具顺序。
+
+修复提交继续执行同一套构建、测试与权限门槛。合并前要求 [PR #7 的最新检查](https://github.com/akuma-homura/WebShortcuts/pull/7/checks)中 `Build, test and lint` 和 `Android 35 device tests` 均通过；测试报告、设备截图和 APK 随对应运行提供，避免把旧提交的通过状态当作新提交的结果。
+
+真实 Chrome / Chrome Beta / Firefox 登录会话及 OEM 启动器属于目标设备验收范围，不由模拟 Intent 测试替代。应用使用各浏览器现有正常会话，不创建同一浏览器内部的独立账号容器。

@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts.local
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -20,14 +21,13 @@ import io.github.homura251.webshortcuts.ui.theme.ThemeMode
 import java.io.File
 import java.net.ServerSocket
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
-import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -51,36 +51,52 @@ class LocalPageReaderTest {
 
     @Test fun readsUnicodeHtmlOfflineAndDoesNotExecuteImportedScriptsOrFetchRemoteImages() {
         val connections = AtomicInteger(0)
+        val observing = AtomicBoolean(true)
+        val observerFailure = AtomicReference<Throwable>()
         ServerSocket(0).use { server ->
-            server.soTimeout = 2_000
-            val observer = thread {
-                try { server.accept().use { connections.incrementAndGet() } }
-                catch (_: SocketTimeoutException) { /* Expected: offline reader cannot connect. */ }
+            server.soTimeout = 250
+            val observer = thread(name = "offline-network-observer", isDaemon = true) {
+                while (observing.get()) {
+                    try { server.accept().use { connections.incrementAndGet() } }
+                    catch (_: SocketTimeoutException) { /* Keep observing through cold WebView startup. */ }
+                    catch (failure: Exception) {
+                        if (observing.get()) observerFailure.set(failure)
+                        break
+                    }
+                }
             }
-            val bytes = fixture("standalone.html").toString(Charsets.UTF_8)
-                .replace("https://network.invalid/missing.png", "http://127.0.0.1:${server.localPort}/missing.png").toByteArray()
-            val bookmark = save(bytes, BookmarkSourceType.HTML, "旅行手记")
-            open(bookmark)
-            val dom = documentState()
-            assertTrue(dom.getString("body").contains("即使没有网络"))
-            assertEquals("旅行手记 · 离线网页", dom.getString("title"))
-            assertFalse(dom.getBoolean("scriptRan"))
-            observer.join(3_000)
+            try {
+                val bytes = fixture("standalone.html").toString(Charsets.UTF_8)
+                    .replace("https://network.invalid/missing.png", "http://127.0.0.1:${server.localPort}/missing.png").toByteArray()
+                val bookmark = save(bytes, BookmarkSourceType.HTML, "旅行手记")
+                open(bookmark)
+                assertPassiveReader("旅行手记 · 离线网页")
+                assertPageContains("即使没有网络")
+                assertPageContains("脚本未执行")
+                capture("24_local_html_reader.png").recycle()
+            } finally {
+                observing.set(false)
+                server.close()
+                observer.join(3_000)
+            }
+            assertNull("Network observer failed", observerFailure.get())
             assertEquals(0, connections.get())
-            capture("24_local_html_reader.png")
         }
     }
 
     @Test fun nativeMhtmlRendersTheEmbeddedImageAndStylesheetOffline() {
         val bookmark = save(fixture("complete.mhtml"), BookmarkSourceType.MHTML, "完整网页归档")
         open(bookmark)
-        val dom = documentState()
-        assertTrue(dom.getString("body").contains("文字、图片和样式"))
-        assertEquals("MHTML 离线归档", dom.getString("title"))
-        assertTrue("Embedded MHTML image must be decoded", dom.getInt("imageWidth") > 0)
-        assertEquals("rgb(0, 106, 96)", dom.getString("headingColor"))
-        assertFalse(dom.getBoolean("scriptRan"))
-        capture("25_local_mhtml_reader.png")
+        assertPassiveReader("MHTML 离线归档")
+        assertPageContains("文字、图片和样式")
+        assertPageContains("脚本未执行")
+        val rendered = capture("25_local_mhtml_reader.png")
+        try {
+            // These opaque colors exist only in the embedded PNG and external archived CSS.
+            // A missing/blocked resource cannot be mistaken for a successful title-only load.
+            assertTrue("Embedded MHTML PNG must actually render", countColor(rendered, Color.rgb(241, 60, 138)) > 256)
+            assertTrue("Embedded MHTML stylesheet must actually render", countColor(rendered, Color.rgb(65, 105, 225)) > 256)
+        } finally { rendered.recycle() }
     }
 
     @Test fun missingPrivateCopyShowsAnActionableError() {
@@ -105,25 +121,48 @@ class LocalPageReaderTest {
         compose.onNodeWithTag("local_page_reader").assertIsDisplayed()
     }
 
-    private fun documentState(): JSONObject {
-        val result = AtomicReference<String>()
-        val complete = CountDownLatch(1)
+    private fun assertPassiveReader(expectedTitle: String) {
         scenario!!.onActivity { activity ->
             val view = findWebView(activity.window.decorView) ?: error("Reader WebView not found")
+            assertEquals(expectedTitle, view.title)
             assertFalse("Production reader must leave scripts disabled", view.settings.javaScriptEnabled)
             assertTrue(view.settings.blockNetworkLoads)
             assertFalse(view.settings.allowContentAccess)
-            // Test-only DOM inspection after the passive document has finished loading. Enabling
-            // evaluation here does not re-run script elements parsed while scripts were disabled.
-            view.settings.javaScriptEnabled = true
-            view.evaluateJavascript("""JSON.stringify({title:document.title,body:document.body.innerText,scriptRan:window.importedScriptRan===true,imageWidth:document.getElementById('archived-image')?.naturalWidth||0,headingColor:getComputedStyle(document.querySelector('h1')).color})""") { value ->
-                view.settings.javaScriptEnabled = false
-                result.set(value)
-                complete.countDown()
-            }
         }
-        assertTrue("WebView DOM response timed out", complete.await(10, TimeUnit.SECONDS))
-        return JSONObject(JSONTokener(result.get()).nextValue() as String)
+    }
+
+    /** Native find works with JavaScript disabled and the document sandbox still active. */
+    private fun assertPageContains(text: String) {
+        val count = AtomicInteger(0)
+        val complete = CountDownLatch(1)
+        scenario!!.onActivity { activity ->
+            val view = findWebView(activity.window.decorView) ?: error("Reader WebView not found")
+            view.setFindListener { _, numberOfMatches, done ->
+                if (done) {
+                    count.set(numberOfMatches)
+                    view.setFindListener(null)
+                    view.clearMatches()
+                    complete.countDown()
+                }
+            }
+            view.findAllAsync(text)
+        }
+        assertTrue("WebView text lookup timed out", complete.await(10, TimeUnit.SECONDS))
+        assertTrue("Rendered document is missing: $text", count.get() > 0)
+    }
+
+    private fun awaitRenderedFrame() {
+        val complete = CountDownLatch(1)
+        scenario!!.onActivity { activity ->
+            val view = findWebView(activity.window.decorView) ?: error("Reader WebView not found")
+            view.postVisualStateCallback(1L, object : WebView.VisualStateCallback() {
+                override fun onComplete(requestId: Long) {
+                    view.postInvalidateOnAnimation()
+                    view.postOnAnimation { view.postOnAnimation { complete.countDown() } }
+                }
+            })
+        }
+        assertTrue("WebView did not draw its completed document", complete.await(10, TimeUnit.SECONDS))
     }
 
     private fun findWebView(view: View): WebView? {
@@ -132,12 +171,28 @@ class LocalPageReaderTest {
         return null
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String): Bitmap {
+        awaitRenderedFrame()
         compose.waitForIdle()
         val screenshot = instrumentation.uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
         val directory = File(checkNotNull(application.getExternalFilesDir(null)), "screenshots").apply { mkdirs() }
         File(directory, name).outputStream().use { assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-        screenshot.recycle()
+        return screenshot
+    }
+
+    private fun countColor(bitmap: Bitmap, expected: Int): Int {
+        val readable = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            requireNotNull(bitmap.copy(Bitmap.Config.ARGB_8888, false))
+        } else bitmap
+        return try {
+            val pixels = IntArray(readable.width * readable.height)
+            readable.getPixels(pixels, 0, readable.width, 0, 0, readable.width, readable.height)
+            pixels.count { pixel ->
+                kotlin.math.abs(Color.red(pixel) - Color.red(expected)) <= 3 &&
+                    kotlin.math.abs(Color.green(pixel) - Color.green(expected)) <= 3 &&
+                    kotlin.math.abs(Color.blue(pixel) - Color.blue(expected)) <= 3
+            }
+        } finally { if (readable !== bitmap) readable.recycle() }
     }
 
     private fun fixture(name: String) = instrumentation.context.assets.open("local/$name").use { it.readBytes() }

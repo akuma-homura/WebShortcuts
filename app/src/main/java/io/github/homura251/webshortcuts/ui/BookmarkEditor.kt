@@ -128,7 +128,6 @@ internal fun BookmarkEditor(
     var showSafeZone by rememberSaveable(state.id) { mutableStateOf(false) }
     var showCrop by rememberSaveable(state.id) { mutableStateOf(false) }
     var urlWasFocused by remember(state.id) { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
     val editorScrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val processingCustomImage = (state.loading && state.mode == IconSourceMode.CUSTOM) || state.importingFile
     val requestDismiss: () -> Unit = {
@@ -137,6 +136,8 @@ internal fun BookmarkEditor(
         }
     }
     EditorWindow(onDismiss = requestDismiss) {
+        // A Dialog owns a different focus root from the Activity beneath it.
+        val focusManager = LocalFocusManager.current
         val view = LocalView.current
         val lightSystemBars = MaterialTheme.colorScheme.surface.luminance() > 0.5f
         SideEffect {
@@ -157,7 +158,12 @@ internal fun BookmarkEditor(
                         colors = TopAppBarDefaults.topAppBarColors(
                             scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                         ),
-                        title = { Text(stringResource(if (state.isNew) R.string.editor_new_title else R.string.editor_edit_title),
+                        title = { Text(stringResource(when {
+                            state.isLocal && state.isNew -> R.string.editor_new_local_title
+                            state.isLocal -> R.string.editor_edit_local_title
+                            state.isNew -> R.string.editor_new_title
+                            else -> R.string.editor_edit_title
+                        }),
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         navigationIcon = {
                             IconButton(onClick = requestDismiss, enabled = !state.saving) {
@@ -174,7 +180,7 @@ internal fun BookmarkEditor(
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Button(
-                                onClick = onSave,
+                                onClick = { focusManager.clearFocus(); onSave() },
                                 enabled = !state.saving && !processingCustomImage,
                                 modifier = Modifier.widthIn(max = 608.dp).fillMaxWidth().heightIn(min = 48.dp),
                             ) {
@@ -202,7 +208,7 @@ internal fun BookmarkEditor(
                     ) {
                         TonalCard(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SectionHeader(stringResource(if (state.isLocal) R.string.local_document_title else R.string.website_details))
+                                SectionHeader(stringResource(if (state.isLocal) R.string.local_document_details else R.string.website_details))
                                 if (!state.isLocal) OutlinedTextField(
                                     value = state.url,
                                     onValueChange = onUrlChange,
@@ -227,8 +233,8 @@ internal fun BookmarkEditor(
                                     value = state.title,
                                     onValueChange = onTitleChange,
                                     enabled = !state.saving,
-                                    label = { Text(stringResource(R.string.title_label)) },
-                                    placeholder = { Text(stringResource(R.string.title_placeholder)) },
+                                    label = { Text(stringResource(if (state.isLocal) R.string.local_document_name_label else R.string.title_label)) },
+                                    placeholder = { Text(stringResource(if (state.isLocal) R.string.local_document_name_hint else R.string.title_placeholder)) },
                                     leadingIcon = { Icon(Icons.Default.TextFields, contentDescription = null) },
                                     supportingText = if (state.titleError != null) { { Text(state.titleError) } } else null,
                                     isError = state.titleError != null,

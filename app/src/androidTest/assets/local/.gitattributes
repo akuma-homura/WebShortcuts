@@ -1,0 +1,2 @@
+# Keep the MIME fixture's original CRLF line endings.
+*.mhtml -text whitespace=cr-at-eol
