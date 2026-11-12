@@ -41,7 +41,8 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 打开仓库的 **Actions → Android CI → 成功的运行记录 → Artifacts**：
 
 - `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
-- `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，必须使用自己的正式签名后分发。
+- `WebShortcuts-release`：启用 R8 并由固定正式密钥签名的发布包，供日常安装和后续覆盖升级；仅在仓库配置签名密钥时生成。
+- `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，供自行签名。
 - `verification-reports`、`device-test-reports`：单元测试、Lint 和设备测试结果。
 - `device-screenshots`：Android 模拟器实际渲染的浅色、深色和编辑页截图，演示数据只存在于测试中。
 
@@ -55,7 +56,9 @@ Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_ru
 
 排查设备测试失败时，可单独填写 `inspect_run_id` 读取该次运行的完整 JUnit 失败信息，不构建或发布应用。
 
-发布包保留 CI 测试签名；它可能与本地交付包或另一次 CI 的签名不同。更换签名前先导出 ZIP 备份，卸载旧包后再安装并导入。R8 包仍为未签名版本。
+正式发布使用仓库固定签名密钥；稳定版本标签且正式签名校验通过后才会标为正式 Release 和 Latest。Release 同时提供正式签名 R8 APK、临时签名 Debug APK、未签名 R8 APK、SHA-256 校验值和含证书指纹的构建来源记录。后续保持同一正式密钥即可覆盖升级。更换旧版或 CI 测试签名前，请先导出 ZIP 备份，卸载旧包后安装正式版并恢复。
+
+仓库维护者需在 Actions Secrets 配置 `RELEASE_KEYSTORE_BASE64`（完整 JKS/PKCS12 文件的 Base64）、`RELEASE_KEYSTORE_PASSWORD`、`RELEASE_KEY_ALIAS` 和 `RELEASE_KEY_PASSWORD`。签名脚本兼容 CRLF 换行、Base64 换行和 URL-safe 编码，密码通过环境变量传递；临时解码文件在签名后删除。密钥与密码应另行安全备份，不得提交到仓库。没有密钥时仍可运行构建与设备测试，但只提供测试构建，不发布为正式版本。
 
 ## 本地构建
 

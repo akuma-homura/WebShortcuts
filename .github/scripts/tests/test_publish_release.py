@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -13,9 +14,15 @@ class PublicationGuardsTest(unittest.TestCase):
     def setUp(self):
         self.repo = 'owner/WebShortcuts'
         self.sha = 'a' * 40
-        self.run = {'repository': {'full_name': self.repo}, 'head_repository': {'full_name': self.repo},
-                    'status': 'completed', 'conclusion': 'success', 'head_sha': self.sha,
-                    'path': '.github/workflows/android.yml', 'event': 'workflow_dispatch'}
+        self.run = {
+            'repository': {'full_name': self.repo},
+            'head_repository': {'full_name': self.repo},
+            'status': 'completed',
+            'conclusion': 'success',
+            'head_sha': self.sha,
+            'path': '.github/workflows/android.yml',
+            'event': 'workflow_dispatch',
+        }
 
     def test_successful_exact_commit_build_is_accepted(self):
         publisher.validate_run(self.run, self.repo, self.sha)
@@ -64,6 +71,68 @@ class PublicationGuardsTest(unittest.TestCase):
             (Path(directory) / 'TEST-failed.xml').write_text('<testsuite tests="3" failures="1" errors="0"/>')
             with self.assertRaises(ValueError):
                 publisher.test_counts(directory)
+
+    def test_keystore_base64_normalizes_crlf_pem_headers_urlsafe_and_unpadded_inputs(self):
+        raw_bytes = b'\x30\x82\x01\x22' + bytes(range(64))
+        standard = base64.b64encode(raw_bytes).decode()
+        crlf_wrapped = '\ufeff"-----BEGIN CERTIFICATE-----\r\n' + standard[:24] + '\r\n  ' + standard[24:] + '\r\n-----END CERTIFICATE-----"\r\n'
+        urlsafe_unpadded = base64.urlsafe_b64encode(raw_bytes).decode().rstrip('=')
+        self.assertEqual(raw_bytes, publisher.decode_keystore(crlf_wrapped))
+        self.assertEqual(raw_bytes, publisher.decode_keystore(urlsafe_unpadded))
+        with self.assertRaisesRegex(ValueError, 'Invalid Base64'):
+            publisher.decode_keystore('not!valid@base64$$$')
+
+    def test_signing_passes_passwords_via_environment_not_argv(self):
+        raw_bytes = b'\x30\x82\x01\x22' + bytes(range(64))
+        encoded = base64.b64encode(raw_bytes).decode() + '\r\n'
+        calls = []
+
+        def fake_command(*args, env=None):
+            calls.append((args, env))
+            if 'verify' in args:
+                return 'Signer #1 certificate SHA-256 digest: ' + ('c' * 64)
+            Path(args[args.index('--out') + 1] if '--out' in args else args[-1]).write_bytes(b'apk')
+            return ''
+
+        with tempfile.TemporaryDirectory() as tmp:
+            unsigned = Path(tmp) / 'unsigned.apk'
+            signed = Path(tmp) / 'signed.apk'
+            unsigned.write_bytes(b'unsigned-apk-bytes')
+            env_vars = {
+                'RELEASE_KEYSTORE_BASE64': encoded,
+                'RELEASE_KEYSTORE_PASSWORD': 'super-secret-store-pass\r\n',
+                'RELEASE_KEY_ALIAS': ' release-key \r\n',
+                'RELEASE_KEY_PASSWORD': 'super-secret-key-pass\r\n',
+            }
+            with patch.dict('os.environ', env_vars, clear=False), patch.object(publisher, 'command', side_effect=fake_command):
+                digest = publisher.sign_apk_file(unsigned, signed, Path('/sdk/build-tools/36.0.0'))
+
+        self.assertEqual('c' * 64, digest)
+        sign_call_args, sign_call_env = calls[1]
+        joined_args = ' '.join(sign_call_args)
+        self.assertNotIn('super-secret', joined_args)
+        self.assertIn('env:_WS_KS_PASS', sign_call_args)
+        self.assertEqual('release-key', sign_call_args[sign_call_args.index('--ks-key-alias') + 1])
+        self.assertEqual('super-secret-store-pass', sign_call_env['_WS_KS_PASS'])
+        self.assertEqual('super-secret-key-pass', sign_call_env['_WS_KEY_PASS'])
+
+    def test_unsigned_fork_build_skips_signing_without_invoking_tools(self):
+        with patch.dict('os.environ', {'RELEASE_KEYSTORE_BASE64': ''}), patch.object(publisher, 'command') as tool:
+            self.assertIsNone(publisher.sign_apk_file(Path('missing.apk'), Path('unused.apk')))
+        tool.assert_not_called()
+
+    def test_incomplete_signing_configuration_fails_before_invoking_tools(self):
+        env = {'RELEASE_KEYSTORE_BASE64': base64.b64encode(bytes(range(64))).decode(),
+               'RELEASE_KEYSTORE_PASSWORD': '', 'RELEASE_KEY_ALIAS': 'release'}
+        with patch.dict('os.environ', env), patch.object(publisher, 'command') as tool:
+            with self.assertRaisesRegex(ValueError, 'must be configured'):
+                publisher.sign_apk_file(Path('missing.apk'), Path('unused.apk'))
+        tool.assert_not_called()
+
+    def test_signed_stable_tag_is_published_as_official_release(self):
+        self.assertFalse(publisher.is_prerelease_release('v1.5.0', True))
+        self.assertTrue(publisher.is_prerelease_release('v1.5.0-rc1', True))
+        self.assertTrue(publisher.is_prerelease_release('v1.5.0', False))
 
 
 if __name__ == '__main__':

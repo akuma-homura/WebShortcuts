@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_tag:
-        description: 'Optional existing tag to publish, e.g. v1.3.0'
+        description: 'Optional existing tag to publish, e.g. v1.5.0'
         required: false
         type: string
       inspect_run_id:
@@ -73,21 +73,7 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > release.jks
-            "${ANDROID_HOME}/build-tools/36.0.0/apksigner" sign \
-              --ks release.jks \
-              --ks-key-alias "$RELEASE_KEY_ALIAS" \
-              --ks-pass "pass:$RELEASE_KEYSTORE_PASSWORD" \
-              --key-pass "pass:$RELEASE_KEY_PASSWORD" \
-              --out app/build/outputs/apk/release/app-release.apk \
-              app/build/outputs/apk/release/app-release-unsigned.apk
-            rm -f release.jks
-            echo "Release APK successfully signed with repository secret."
-          else
-            echo "No signing keystore configured; skipping signing."
-          fi
+        run: python3 .github/scripts/publish-release.py sign
       - name: Upload release APK (signed)
         uses: actions/upload-artifact@v4
         with:
