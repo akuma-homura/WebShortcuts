@@ -2,8 +2,9 @@ package io.github.homura251.webshortcuts.ui
 
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -16,15 +17,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import io.github.homura251.webshortcuts.data.*
+import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.BookmarkTag
+import io.github.homura251.webshortcuts.data.TagFilter
 import io.github.homura251.webshortcuts.icons.IconProcessor
 import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.icons.IconStore
-import io.github.homura251.webshortcuts.ui.theme.*
+import io.github.homura251.webshortcuts.ui.theme.AppTheme
+import io.github.homura251.webshortcuts.ui.theme.AppearancePreferences
+import io.github.homura251.webshortcuts.ui.theme.LayoutMode
+import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
 import java.io.File
 
-private val previewTags = listOf(BookmarkTag("docs", "开发文档"), BookmarkTag("work", "工作"),
-    BookmarkTag("read", "稍后阅读"), BookmarkTag("long", "设计规范与参考资料"), BookmarkTag("empty", "待整理"))
+private val previewTags = listOf(
+    BookmarkTag("docs", "开发文档"),
+    BookmarkTag("work", "工作"),
+    BookmarkTag("read", "稍后阅读"),
+    BookmarkTag("long", "设计规范与参考资料"),
+    BookmarkTag("empty", "待整理"),
+)
 private val previewBookmarks = listOf(
     BookmarkItem(id = "android", title = "Android 开发文档", url = "https://developer.android.com/", tagIds = setOf("docs", "work", "read")),
     BookmarkItem(id = "material", title = "Material Design", url = "https://m3.material.io/", tagIds = setOf("work", "long")),
@@ -34,18 +45,23 @@ private val previewBookmarks = listOf(
 )
 
 @Preview(name = "Tags list", widthDp = 360, heightDp = 800, showBackground = true)
-@Composable fun TagListPreview() = TagHomePreview()
+@Composable
+fun TagListPreview() = TagHomePreview()
 
 @Preview(name = "Tags dark grid", widthDp = 360, heightDp = 800, showBackground = true)
-@Composable fun TagGridPreview() = TagHomePreview(grid = true, dark = true)
+@Composable
+fun TagGridPreview() = TagHomePreview(grid = true, dark = true)
 
 @Preview(name = "Tags batch", widthDp = 360, heightDp = 800, showBackground = true)
-@Composable fun TagBatchPreview() = TagHomePreview(batch = true)
+@Composable
+fun TagBatchPreview() = TagHomePreview(batch = true)
 
 @Preview(name = "Tags large font", widthDp = 320, heightDp = 720, fontScale = 2f, showBackground = true)
-@Composable fun TagLargeFontPreview() = TagHomePreview()
+@Composable
+fun TagLargeFontPreview() = TagHomePreview()
 
-@Composable private fun TagHomePreview(grid: Boolean = false, dark: Boolean = false, batch: Boolean = false) {
+@Composable
+private fun TagHomePreview(grid: Boolean = false, dark: Boolean = false, batch: Boolean = false) {
     val context = LocalContext.current
     val resolver = remember(context) {
         val previewContext = object : ContextWrapper(context) {
@@ -54,59 +70,86 @@ private val previewBookmarks = listOf(
         }
         IconResolver(previewContext, IconStore(previewContext), IconProcessor())
     }
-    val state = HomeUiState(loading = false, bookmarks = previewBookmarks, tags = previewTags,
-        tagFilter = TagFilter(setOf("work")), selectionMode = batch, selectedIds = if (batch) setOf("android", "github") else emptySet())
+    val state = HomeUiState(
+        loading = false,
+        bookmarks = previewBookmarks,
+        tags = previewTags,
+        tagFilter = TagFilter(setOf("work")),
+        selectionMode = batch,
+        selectedIds = if (batch) setOf("android", "github") else emptySet(),
+    )
     WebShortcutsTheme(darkTheme = dark, dynamicColor = false) {
-        WebShortcutsApp(state, resolver, remember { SnackbarHostState() },
+        WebShortcutsApp(
+            state, resolver, remember { SnackbarHostState() },
             onQueryChange = {}, onAdd = {}, onEdit = {}, onOpen = {}, onPin = {}, onUpdateShortcut = {},
             onRefresh = {}, onRefreshAll = {}, onDelete = {}, onDismissEditor = {}, onTitleChange = {},
             onUrlChange = {}, onUrlFocusLost = {}, onModeChange = {}, onPickImage = {}, onRefetchIcon = {}, onSave = {},
-            appearance = AppearancePreferences(dynamicColor = false, layoutMode = if (grid) LayoutMode.GRID else LayoutMode.LIST))
+            appearance = AppearancePreferences(dynamicColor = false, layoutMode = if (grid) LayoutMode.GRID else LayoutMode.LIST),
+        )
     }
 }
 
 @Preview(name = "Tag filter", widthDp = 360, heightDp = 560, showBackground = true)
-@Composable fun TagFilterPreview() = TagPanelPreview {
-    Text("筛选标签", style = MaterialTheme.typography.titleMedium)
+@Composable
+fun TagFilterPreview() = TagPanelPreview {
+    Text("筛选标签", style = MaterialTheme.typography.headlineSmall)
     TagFilterContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, tagFilter = TagFilter(setOf("work", "docs")))) {}
 }
 
 @Preview(name = "Tag editor large font", widthDp = 320, heightDp = 640, fontScale = 2f, showBackground = true)
-@Composable fun TagEditorLargeFontPreview() = TagPanelPreview {
-    Text("添加标签", style = MaterialTheme.typography.titleMedium)
-    TagEditorContent(previewTags, TagEditorUiState(setOf("android"), TagEditMode.ADD,
-        selectedIds = setOf("docs"), newNames = listOf("待处理"), pendingName = "灵感"), {}, {}, {}, {})
+@Composable
+fun TagEditorLargeFontPreview() = TagPanelPreview {
+    Text("添加标签", style = MaterialTheme.typography.headlineSmall)
+    TagEditorContent(
+        previewTags,
+        TagEditorUiState(
+            setOf("android"), TagEditMode.ADD,
+            selectedIds = setOf("docs"), newNames = listOf("待处理"), pendingName = "灵感",
+        ),
+        {}, {}, {}, {},
+    )
 }
 
 @Preview(name = "Tag editor compact", widthDp = 360, heightDp = 560, showBackground = true)
-@Composable fun TagEditorPreview() = TagPanelPreview {
-    Text("收藏标签", style = MaterialTheme.typography.titleMedium)
-    TagEditorContent(previewTags, TagEditorUiState(setOf("android"), selectedIds = setOf("docs"),
-        newNames = listOf("待处理"), pendingName = "灵感"), {}, {}, {}, {})
+@Composable
+fun TagEditorPreview() = TagPanelPreview {
+    Text("收藏标签", style = MaterialTheme.typography.headlineSmall)
+    TagEditorContent(
+        previewTags,
+        TagEditorUiState(
+            setOf("android"), selectedIds = setOf("docs"),
+            newNames = listOf("待处理"), pendingName = "灵感",
+        ),
+        {}, {}, {}, {},
+    )
 }
 
 @Preview(name = "Tag manager", widthDp = 360, heightDp = 640, showBackground = true)
-@Composable fun TagManagerPreview() = TagPanelPreview {
-    Text("标签管理", style = MaterialTheme.typography.titleMedium)
+@Composable
+fun TagManagerPreview() = TagPanelPreview {
+    Text("标签管理", style = MaterialTheme.typography.headlineSmall)
     TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags), {}, { _, _ -> }, {})
 }
 
 @Preview(name = "Tag manager dark", widthDp = 360, heightDp = 560, showBackground = true)
-@Composable fun TagManagerDarkPreview() = TagPanelPreview(dark = true) {
-    Text("标签管理", style = MaterialTheme.typography.titleMedium)
+@Composable
+fun TagManagerDarkPreview() = TagPanelPreview(dark = true) {
+    Text("标签管理", style = MaterialTheme.typography.headlineSmall)
     TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags, newTagName = "工"), {}, { _, _ -> }, {})
 }
 
 @Preview(name = "Tag manager large font", widthDp = 320, heightDp = 640, fontScale = 2f, showBackground = true)
-@Composable fun TagManagerLargeFontPreview() = TagPanelPreview {
-    Text("标签管理", style = MaterialTheme.typography.titleMedium)
+@Composable
+fun TagManagerLargeFontPreview() = TagPanelPreview {
+    Text("标签管理", style = MaterialTheme.typography.headlineSmall)
     TagManagerContent(HomeUiState(bookmarks = previewBookmarks, tags = previewTags), {}, { _, _ -> }, {})
 }
 
-@Composable private fun TagPanelPreview(dark: Boolean = false, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+@Composable
+private fun TagPanelPreview(dark: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     WebShortcutsTheme(darkTheme = dark, dynamicColor = false) {
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+        Surface(color = AppTheme.surfaces.canvas) {
+            Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
         }
     }
 }

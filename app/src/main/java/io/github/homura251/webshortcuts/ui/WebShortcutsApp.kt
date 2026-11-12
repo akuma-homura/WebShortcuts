@@ -1,38 +1,33 @@
 package io.github.homura251.webshortcuts.ui
 
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
-import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog as AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton as TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -48,15 +43,20 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.LibraryOrdering
 import io.github.homura251.webshortcuts.data.LibrarySnapshot
-import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.icons.CropRect
 import io.github.homura251.webshortcuts.icons.IconResolver
+import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog
+import io.github.homura251.webshortcuts.ui.components.ExpressiveExtendedFab
+import io.github.homura251.webshortcuts.ui.components.ExpressiveIconButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalIconButton
+import io.github.homura251.webshortcuts.ui.theme.AppTheme
 import io.github.homura251.webshortcuts.ui.theme.AppearancePreferences
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -109,39 +109,71 @@ fun WebShortcutsApp(
     var deleteTarget by remember { mutableStateOf<BookmarkItem?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val autoCount = state.bookmarks.count { !it.isLocal && it.selectedIconSource == IconSourceMode.AUTO }
+    val surfaces = AppTheme.surfaces
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().testTag("home_screen").nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.background,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("home_screen")
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = surfaces.canvas,
         topBar = {
             TopAppBar(
-                title = { Text(if (state.selectionMode) stringResource(R.string.selected_bookmark_count, state.selectedIds.size) else stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        text = if (state.selectionMode) stringResource(R.string.selected_bookmark_count, state.selectedIds.size)
+                        else stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
-                    if (state.selectionMode) IconButton(onClick = tagActions.cancelSelection, enabled = !state.tagSaving) {
-                        Icon(Icons.Default.Close, stringResource(R.string.cancel_selection))
+                    if (state.selectionMode) {
+                        ExpressiveTonalIconButton(onClick = tagActions.cancelSelection, enabled = !state.tagSaving) {
+                            Icon(Icons.Default.Close, stringResource(R.string.cancel_selection))
+                        }
                     }
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    containerColor = surfaces.canvas,
+                    scrolledContainerColor = surfaces.scrolledBar,
                 ),
                 actions = {
                     if (state.selectionMode) {
-                        TextButton(onClick = tagActions.selectAll, enabled = !state.tagSaving,
-                            modifier = Modifier.testTag("select_all_bookmarks")) { Text(stringResource(R.string.select_all)) }
+                        ExpressiveTextButton(
+                            onClick = tagActions.selectAll,
+                            enabled = !state.tagSaving,
+                            modifier = Modifier.testTag("select_all_bookmarks"),
+                        ) {
+                            Text(stringResource(R.string.select_all))
+                        }
                     } else {
-                        IconButton(onClick = onImportLocal, enabled = !state.transferBusy && !state.importingLocal, modifier = Modifier.testTag("import_local_page")) {
+                        ExpressiveIconButton(
+                            onClick = onImportLocal,
+                            enabled = !state.transferBusy && !state.importingLocal,
+                            modifier = Modifier.testTag("import_local_page"),
+                        ) {
                             Icon(Icons.Default.FolderOpen, stringResource(R.string.import_local_page))
                         }
-                        IconButton(onClick = { showAppearance = true }, enabled = !state.transferBusy, modifier = Modifier.testTag("open_appearance")) {
+                        ExpressiveIconButton(
+                            onClick = { showAppearance = true },
+                            enabled = !state.transferBusy,
+                            modifier = Modifier.testTag("open_appearance"),
+                        ) {
                             Icon(Icons.Default.Palette, contentDescription = stringResource(R.string.appearance_title))
                         }
                         Box {
-                            IconButton(onClick = { menuExpanded = true }) {
+                            ExpressiveIconButton(onClick = { menuExpanded = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.more_options))
                             }
-                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                                shape = MaterialTheme.shapes.large,
+                                containerColor = surfaces.elevated,
+                            ) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(if (state.refreshing) R.string.refreshing_all else R.string.refresh_all)) },
                                     leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
@@ -157,8 +189,11 @@ fun WebShortcutsApp(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.manage_tags)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null) }, enabled = !state.transferBusy && !state.tagSaving,
-                                    onClick = { menuExpanded = false; showTagManager = true }, modifier = Modifier.testTag("manage_tags"))
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null) },
+                                    enabled = !state.transferBusy && !state.tagSaving,
+                                    onClick = { menuExpanded = false; showTagManager = true },
+                                    modifier = Modifier.testTag("manage_tags"),
+                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.about_menu)) },
                                     leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
@@ -171,28 +206,46 @@ fun WebShortcutsApp(
             )
         },
         floatingActionButton = {
-            if (!state.loading && state.error == null && state.bookmarks.isNotEmpty() && !state.selectionMode && state.reorder == null) {
-                ExtendedFloatingActionButton(
-                    onClick = { if (!state.transferBusy) onAdd() },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text(stringResource(R.string.add_site)) },
-                )
-            }
+            ExpressiveExtendedFab(
+                text = stringResource(R.string.add_site),
+                icon = Icons.Default.Add,
+                onClick = { if (!state.transferBusy) onAdd() },
+                visible = !state.loading && state.error == null && state.bookmarks.isNotEmpty() && !state.selectionMode && state.reorder == null,
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        PullToRefreshBox(isRefreshing = state.refreshing,
-            onRefresh = { if (!state.loading && state.error == null && autoCount > 0 && !state.transferBusy && !state.selectionMode && state.reorder == null) onRefreshAll() },
-            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = {
+                if (!state.loading && state.error == null && autoCount > 0 && !state.transferBusy && !state.selectionMode && state.reorder == null) {
+                    onRefreshAll()
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             BookmarkCollection(
-                state = state, iconResolver = iconResolver, layoutMode = appearance.layoutMode,
-                onQueryChange = onQueryChange, onAdd = onAdd,
-                onImportLocal = onImportLocal, onSourceFilterChange = onSourceFilterChange,
+                state = state,
+                iconResolver = iconResolver,
+                layoutMode = appearance.layoutMode,
+                onQueryChange = onQueryChange,
+                onAdd = onAdd,
+                onImportLocal = onImportLocal,
+                onSourceFilterChange = onSourceFilterChange,
                 onLayoutChange = { onAppearanceChange(appearance.copy(layoutMode = it)) },
-                onOpen = onOpen, onPin = onPin, onEdit = onEdit, onRefresh = onRefresh,
-                onUpdateShortcut = onUpdateShortcut, onDelete = { deleteTarget = it },
+                onOpen = onOpen,
+                onPin = onPin,
+                onEdit = onEdit,
+                onRefresh = onRefresh,
+                onUpdateShortcut = onUpdateShortcut,
+                onDelete = { deleteTarget = it },
                 onClearRefreshSummary = onClearRefreshSummary,
-                tagActions = tagActions, onShowTagFilter = { showTagFilter = true },
+                tagActions = tagActions,
+                onShowTagFilter = { showTagFilter = true },
                 onShowSorting = { sortQuery = ""; showSorting = OrderTarget.BOOKMARKS.name },
             )
         }
@@ -214,8 +267,11 @@ fun WebShortcutsApp(
             onSave = onSave,
             onCenterCropChange = onCenterCropChange,
             onCropApply = onCropApply,
-            tags = orderedTags, onEditTags = tagActions.editEditor,
-            browsers = state.browsers, onBrowserChange = onBrowserChange, onImportLocal = onImportLocal,
+            tags = orderedTags,
+            onEditTags = tagActions.editEditor,
+            browsers = state.browsers,
+            onBrowserChange = onBrowserChange,
+            onImportLocal = onImportLocal,
         )
     }
     if (showTagFilter && !state.selectionMode) TagPanel(stringResource(R.string.filter_tags), { showTagFilter = false }) {
@@ -224,18 +280,25 @@ fun WebShortcutsApp(
     if (showTagManager) TagPanel(stringResource(R.string.manage_tags), {
         if (!state.tagSaving) { tagActions.catalogNameChange(""); showTagManager = false }
     }, !state.tagSaving) {
-        TagManagerContent(state, tagActions.create, tagActions.rename, tagActions.delete,
-            onShowSorting = { sortQuery = it; showSorting = OrderTarget.TAGS.name }, onNewNameChange = tagActions.catalogNameChange)
+        TagManagerContent(
+            state, tagActions.create, tagActions.rename, tagActions.delete,
+            onShowSorting = { sortQuery = it; showSorting = OrderTarget.TAGS.name },
+            onNewNameChange = tagActions.catalogNameChange,
+        )
     }
     state.tagEditor?.let { sheet ->
-        val title = stringResource(when (sheet.mode) {
-            TagEditMode.SET -> R.string.bookmark_tags
-            TagEditMode.ADD -> R.string.add_tags
-            TagEditMode.REMOVE -> R.string.remove_tags
-        })
+        val title = stringResource(
+            when (sheet.mode) {
+                TagEditMode.SET -> R.string.bookmark_tags
+                TagEditMode.ADD -> R.string.add_tags
+                TagEditMode.REMOVE -> R.string.remove_tags
+            }
+        )
         TagPanel(title, tagActions.dismiss, !sheet.saving) {
-            TagEditorContent(orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply,
-                onPendingChange = tagActions.pendingNameChange, onRemoveSelected = tagActions.removeSelected)
+            TagEditorContent(
+                orderedTags, sheet, tagActions.toggle, tagActions.toggleNew, tagActions.createDraft, tagActions.apply,
+                onPendingChange = tagActions.pendingNameChange, onRemoveSelected = tagActions.removeSelected,
+            )
         }
     }
     showSorting?.let { target ->
@@ -243,26 +306,30 @@ fun WebShortcutsApp(
     }
     if (state.reorder != null) ReorderDialog(state, sortActions)
     deleteTarget?.let { bookmark ->
-        AlertDialog(
+        ExpressiveAlertDialog(
             onDismissRequest = { deleteTarget = null },
             icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
             title = { Text(stringResource(R.string.delete_title, bookmark.title)) },
             text = { Text(stringResource(R.string.delete_body)) },
             confirmButton = {
-                TextButton(onClick = { deleteTarget = null; onDelete(bookmark) }) {
-                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                ExpressiveTextButton(onClick = { deleteTarget = null; onDelete(bookmark) }, destructive = true) {
+                    Text(stringResource(R.string.delete))
                 }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = {
+                ExpressiveTextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.cancel)) }
+            },
         )
     }
     if (showAbout) {
-        AlertDialog(
+        ExpressiveAlertDialog(
             onDismissRequest = { showAbout = false },
             icon = { Icon(Icons.Default.Lock, contentDescription = null) },
             title = { Text(stringResource(R.string.about_title)) },
             text = { Text(stringResource(R.string.about_body), modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { showAbout = false }) { Text(stringResource(R.string.understood)) } },
+            confirmButton = {
+                ExpressiveTextButton(onClick = { showAbout = false }) { Text(stringResource(R.string.understood)) }
+            },
         )
     }
 }

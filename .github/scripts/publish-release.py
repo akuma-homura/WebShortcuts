@@ -1,5 +1,7 @@
-"""Publish immutable APKs from a successful, tag-matching Android CI run."""
+"""Sign and publish immutable APKs from a successful, tag-matching Android CI run."""
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -7,16 +9,124 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
 
-def command(*args):
-    return subprocess.check_output(args, text=True).strip()
+def command(*args, env=None):
+    return subprocess.check_output(args, text=True, env=env).strip()
 
 
 def api(path):
     return json.loads(command('gh', 'api', path))
+
+
+def find_build_tools():
+    build_tools_dir = Path(os.environ.get('ANDROID_HOME', '')) / 'build-tools'
+    if build_tools_dir.exists():
+        candidates = sorted([p for p in build_tools_dir.iterdir() if p.is_dir()], key=lambda p: p.name)
+        if candidates:
+            return candidates[-1]
+    return build_tools_dir / '36.0.0'
+
+
+def tool_binary(tools_dir: Path, name: str) -> str:
+    if os.name == 'nt':
+        for suffix in ('.bat', '.exe', '.cmd', ''):
+            candidate = tools_dir / f'{name}{suffix}'
+            if candidate.exists():
+                return str(candidate)
+    return str(tools_dir / name)
+
+
+def decode_keystore(raw: str) -> bytes:
+    """Normalize Base64 keystore input across Windows/Linux clipboards, PEM headers, and URL-safe variants."""
+    text = (raw or '').lstrip('\ufeff').strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        text = text[1:-1].strip()
+    if text.lower().startswith('data:') and ',' in text:
+        text = text.split(',', 1)[1]
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith('-----')
+    ]
+    compact = re.sub(r'\s+', '', ''.join(lines)).replace('-', '+').replace('_', '/').rstrip('=')
+    if not compact:
+        raise ValueError('Decoded keystore input is empty')
+    padded = compact + ('=' * ((-len(compact)) % 4))
+    try:
+        data = base64.b64decode(padded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError('Invalid Base64 in RELEASE_KEYSTORE_BASE64') from exc
+    if len(data) < 32:
+        raise ValueError(f'Decoded keystore is unexpectedly small ({len(data)} bytes)')
+    return data
+
+
+def verify_apk_cert_sha256(apk_path: Path, tools: Path) -> str:
+    certs = command(tool_binary(tools, 'apksigner'), 'verify', '--print-certs', str(apk_path))
+    match = re.search(r'certificate SHA-256 digest:\s*([0-9a-f]{64})', certs)
+    if not match:
+        raise ValueError(f'Could not verify certificate SHA-256 for {apk_path.name}')
+    return match.group(1)
+
+
+def sign_apk_file(unsigned_apk: Path, output_apk: Path, tools: Path | None = None) -> str | None:
+    """Sign an unsigned APK if RELEASE_KEYSTORE_BASE64 is configured; never pass secrets on CLI argv."""
+    keystore_b64 = (os.environ.get('RELEASE_KEYSTORE_BASE64') or '').strip()
+    if not keystore_b64:
+        print('No signing keystore configured; skipping signing.')
+        return None
+
+    keystore_pass = (os.environ.get('RELEASE_KEYSTORE_PASSWORD') or '').strip('\r\n')
+    key_alias = (os.environ.get('RELEASE_KEY_ALIAS') or '').strip()
+    key_pass = (os.environ.get('RELEASE_KEY_PASSWORD') or '').strip('\r\n') or keystore_pass
+    if not keystore_pass or not key_alias:
+        raise ValueError('RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_ALIAS must be configured with RELEASE_KEYSTORE_BASE64')
+
+    if not unsigned_apk.is_file():
+        raise FileNotFoundError(f'Unsigned APK not found: {unsigned_apk}')
+
+    tools = tools or find_build_tools()
+    keystore_bytes = decode_keystore(keystore_b64)
+    output_apk.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        ks_file = tmp_dir / 'release-keystore.p12'
+        ks_file.write_bytes(keystore_bytes)
+        try:
+            os.chmod(ks_file, 0o600)
+        except OSError:
+            pass
+        aligned_apk = tmp_dir / 'aligned-unsigned.apk'
+        command(tool_binary(tools, 'zipalign'), '-p', '-f', '4', str(unsigned_apk), str(aligned_apk))
+
+        sign_env = os.environ.copy()
+        sign_env['_WS_KS_PASS'] = keystore_pass
+        sign_env['_WS_KEY_PASS'] = key_pass
+        command(
+            tool_binary(tools, 'apksigner'), 'sign',
+            '--ks', str(ks_file),
+            '--ks-key-alias', key_alias,
+            '--ks-pass', 'env:_WS_KS_PASS',
+            '--key-pass', 'env:_WS_KEY_PASS',
+            '--out', str(output_apk),
+            str(aligned_apk),
+            env=sign_env,
+        )
+
+    digest = verify_apk_cert_sha256(output_apk, tools)
+    print(f'Signed and verified {output_apk} (cert SHA-256: {digest})')
+    return digest
+
+
+def sign():
+    unsigned = Path('app/build/outputs/apk/release/app-release-unsigned.apk')
+    signed = Path('app/build/outputs/apk/release/app-release.apk')
+    sign_apk_file(unsigned, signed)
 
 
 def inputs():
@@ -32,6 +142,10 @@ def inputs():
     if not re.fullmatch(r'[1-9]\d{0,19}', run_id):
         raise ValueError('A completed Android CI run ID is required')
     return repo, tag, run_id
+
+
+def is_prerelease_release(tag: str, release_signed: bool) -> bool:
+    return ('-' in tag) or (not release_signed)
 
 
 def validate_run(run, repo, sha):
@@ -71,8 +185,20 @@ def validate():
         if len(matches) != 1:
             raise ValueError(f'Missing or ambiguous artifact: {name}')
         selected.append({k: matches[0].get(k) for k in ('id', 'name', 'digest')})
-    value = {'repository': repo, 'tag': tag, 'commit': sha, 'buildRunId': int(run_id),
-             'buildAttempt': run['run_attempt'], 'buildUrl': run['html_url'], 'artifacts': selected}
+    optional_signed = [a for a in artifacts if a['name'] == 'WebShortcuts-release' and not a['expired']]
+    if len(optional_signed) > 1:
+        raise ValueError('Ambiguous artifact: WebShortcuts-release')
+    if len(optional_signed) == 1:
+        selected.append({k: optional_signed[0].get(k) for k in ('id', 'name', 'digest')})
+    value = {
+        'repository': repo,
+        'tag': tag,
+        'commit': sha,
+        'buildRunId': int(run_id),
+        'buildAttempt': run['run_attempt'],
+        'buildUrl': run['html_url'],
+        'artifacts': selected,
+    }
     Path('release-validation.json').write_text(json.dumps(value, indent=2) + '\n')
     print(f'Validated {tag} -> {sha}, Android CI run {run_id}')
 
@@ -99,19 +225,27 @@ def test_counts(directory):
     return counts
 
 
+def verify_apk_metadata(apk_path: Path, expected_tag: str, expected_commit: str | None, tools: Path):
+    if expected_commit is not None:
+        with zipfile.ZipFile(apk_path) as apk:
+            embedded = apk.read('META-INF/version-control-info.textproto').decode()
+            if expected_commit not in re.findall(r'revision:\s*"([0-9a-f]{40})"', embedded):
+                raise ValueError(f'{apk_path.name} embeds a different source commit')
+    badging = command(tool_binary(tools, 'aapt'), 'dump', 'badging', str(apk_path))
+    version = re.search(r"versionName='([^']+)'", badging).group(1)
+    version_code = int(re.search(r"versionCode='(\d+)'", badging).group(1))
+    if version != expected_tag.removeprefix('v') or "name='io.github.homura251.webshortcuts'" not in badging:
+        raise ValueError(f'APK package/version does not match the requested release: {apk_path.name}')
+    return version, version_code
+
+
 def package():
     value = validation()
-    build_tools_dir = Path(os.environ.get('ANDROID_HOME', '')) / 'build-tools'
-    if build_tools_dir.exists() and list(build_tools_dir.iterdir()):
-        tools = sorted(build_tools_dir.iterdir(), key=lambda p: p.name)[-1]
-    else:
-        tools = Path(os.environ.get('ANDROID_HOME', '')) / 'build-tools/36.0.0'
-    paths = {'debug': Path('downloaded-apks/WebShortcuts-debug/app-debug.apk'),
-             'release-unsigned': Path('downloaded-apks/WebShortcuts-release-unsigned/app-release-unsigned.apk')}
-    with zipfile.ZipFile(paths['release-unsigned']) as apk:
-        embedded = apk.read('META-INF/version-control-info.textproto').decode()
-        if value['commit'] not in re.findall(r'revision:\s*"([0-9a-f]{40})"', embedded):
-            raise ValueError('Release APK embeds a different source commit')
+    tools = find_build_tools()
+    paths = {
+        'debug': Path('downloaded-apks/WebShortcuts-debug/app-debug.apk'),
+        'release-unsigned': Path('downloaded-apks/WebShortcuts-release-unsigned/app-release-unsigned.apk'),
+    }
     value['tests'] = {'jvm': test_counts('downloaded-reports/jvm'), 'android35': test_counts('downloaded-reports/device')}
     value['publicationRunId'] = os.environ['GITHUB_RUN_ID']
     value['publicationWorkflowCommit'] = os.environ['GITHUB_SHA']
@@ -120,59 +254,81 @@ def package():
     output = Path('release-assets')
     output.mkdir(exist_ok=False)
     value['apks'] = []
-    version = ""
+    version = ''
     version_code = 0
+
     for mode, path in paths.items():
-        badging = command(str(tools / 'aapt'), 'dump', 'badging', str(path))
-        version = re.search(r"versionName='([^']+)'", badging).group(1)
-        version_code = int(re.search(r"versionCode='(\d+)'", badging).group(1))
-        if version != value['tag'].removeprefix('v') or "name='io.github.homura251.webshortcuts'" not in badging:
-            raise ValueError('APK package/version does not match the requested release')
+        expected_commit = value['commit'] if mode == 'release-unsigned' else None
+        version, version_code = verify_apk_metadata(path, value['tag'], expected_commit, tools)
         name = f'{prefix}-{mode}.apk'
         shutil.copyfile(path, output / name)
-        value['apks'].append({'file': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                              'bytes': path.stat().st_size, 'versionName': version, 'versionCode': version_code})
-    certificates = command(str(tools / 'apksigner'), 'verify', '--print-certs', str(paths['debug']))
-    value['debugCertificateSha256'] = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', certificates).group(1)
+        value['apks'].append({
+            'file': name,
+            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+            'bytes': path.stat().st_size,
+            'versionName': version,
+            'versionCode': version_code,
+        })
+
+    value['debugCertificateSha256'] = verify_apk_cert_sha256(paths['debug'], tools)
     value['releaseSigned'] = False
 
-    signed_name = None
-    keystore_base64 = os.environ.get('RELEASE_KEYSTORE_BASE64')
-    keystore_pass = os.environ.get('RELEASE_KEYSTORE_PASSWORD')
-    key_alias = os.environ.get('RELEASE_KEY_ALIAS')
-    key_pass = os.environ.get('RELEASE_KEY_PASSWORD')
-    if keystore_base64 and keystore_pass and key_alias and key_pass:
-        import base64
-        ks_file = Path('temp-release.jks')
-        try:
-            ks_file.write_bytes(base64.b64decode(keystore_base64))
-            signed_apk = Path('temp-release-signed.apk')
-            command(str(tools / 'apksigner'), 'sign',
-                    '--ks', str(ks_file),
-                    '--ks-key-alias', key_alias,
-                    '--ks-pass', f'pass:{keystore_pass}',
-                    '--key-pass', f'pass:{key_pass}',
-                    '--out', str(signed_apk),
-                    str(paths['release-unsigned']))
-            signed_name = f'{prefix}-release.apk'
-            shutil.copyfile(signed_apk, output / signed_name)
-            signed_certs = command(str(tools / 'apksigner'), 'verify', '--print-certs', str(signed_apk))
-            value['releaseCertificateSha256'] = re.search(r'certificate SHA-256 digest: ([0-9a-f]{64})', signed_certs).group(1)
-            value['releaseSigned'] = True
-            value['apks'].append({'file': signed_name, 'sha256': hashlib.sha256(signed_apk.read_bytes()).hexdigest(),
-                                  'bytes': signed_apk.stat().st_size, 'versionName': version, 'versionCode': version_code})
-            signed_apk.unlink()
-        finally:
-            if ks_file.exists():
-                ks_file.unlink()
+    signed_name = f'{prefix}-release.apk'
+    signed_target = output / signed_name
+    ci_signed_artifact = Path('downloaded-apks/WebShortcuts-release/app-release.apk')
+    release_cert_sha256 = None
+
+    if ci_signed_artifact.is_file():
+        verify_apk_metadata(ci_signed_artifact, value['tag'], value['commit'], tools)
+        release_cert_sha256 = verify_apk_cert_sha256(ci_signed_artifact, tools)
+        shutil.copyfile(ci_signed_artifact, signed_target)
+    else:
+        release_cert_sha256 = sign_apk_file(paths['release-unsigned'], signed_target, tools)
+
+    if release_cert_sha256:
+        value['releaseCertificateSha256'] = release_cert_sha256
+        value['releaseSigned'] = True
+        value['apks'].append({
+            'file': signed_name,
+            'sha256': hashlib.sha256(signed_target.read_bytes()).hexdigest(),
+            'bytes': signed_target.stat().st_size,
+            'versionName': version,
+            'versionCode': version_code,
+        })
+    else:
+        signed_name = None
 
     (output / f'{prefix}-BUILD-INFO.json').write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     hashes = ''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in sorted(output.iterdir()))
     (output / f'{prefix}-SHA256SUMS.txt').write_text(hashes)
     debug_name = value['apks'][0]['file']
     jvm, device = value['tests']['jvm'], value['tests']['android35']
-    signed_release_note = f"- **正式签名发布版**：`{signed_name}`，使用仓库配置的正式发布密钥签名，支持后续版本直接覆盖更新。\n" if signed_name else ""
-    notes = f'''WebShortcuts Android 构建产物，来源版本、提交及验证记录如下。\n\n版本：{version}（{version_code}） · 提交：`{value['commit']}`\n\n### 下载\n\n{signed_release_note}- **直接安装（CI 测试版）**：`{debug_name}`，由 GitHub Actions 构建并使用 CI 测试签名。\n- `release-unsigned.apk`：R8 未签名包，需要自行正式签名。\n- `SHA256SUMS.txt` 与 `BUILD-INFO.json`：实际文件校验值、来源提交及验证记录。\n\nCI 测试签名与此前本地交付包不同。更换签名前，请先在旧版导出 ZIP 备份，再卸载旧版安装；如签名相同可直接覆盖安装。\n\n### 验证\n\n[Android CI]({value['buildUrl']}) 已成功：JVM/Robolectric/Compose {jvm['tests']} 项测试，Android 35 模拟器 {device['tests']} 项测试（跳过 {device['skipped']} 项），失败和错误均为 0。Debug、R8 Release、Lint 及权限检查通过。模拟器结果不代表 OEM 真机验收。\n'''
+
+    if signed_name:
+        download_section = (
+            f"- **正式签名发布版（推荐日常安装）**：`{signed_name}`，启用 R8 优化并使用仓库正式发布密钥签名（证书 SHA-256：`{release_cert_sha256[:16]}…`），后续正式版本可直接覆盖升级。\n"
+            f"- **CI 测试版**：`{debug_name}`，使用临时 CI 测试签名，仅供调试排查。\n"
+            f"- `release-unsigned.apk`：R8 未签名产物。\n"
+            f"- `SHA256SUMS.txt` 与 `BUILD-INFO.json`：完整 SHA-256 校验值、签名指纹与构建溯源记录。\n\n"
+            "若此前安装过早期未正式签名的 CI 测试包，首次切换到正式签名发布版前请先在应用内导出完整 ZIP 备份，卸载旧测试包后安装正式版并恢复备份。"
+        )
+    else:
+        download_section = (
+            f"- **直接安装（CI 测试版）**：`{debug_name}`，由 GitHub Actions 构建并使用 CI 测试签名。\n"
+            f"- `release-unsigned.apk`：R8 未签名包，需要自行正式签名。\n"
+            f"- `SHA256SUMS.txt` 与 `BUILD-INFO.json`：实际文件校验值、来源提交及验证记录。\n\n"
+            "CI 测试签名与此前本地交付包不同。更换签名前，请先在旧版导出 ZIP 备份，再卸载旧版安装；如签名相同可直接覆盖安装。"
+        )
+
+    notes = (
+        f"WebShortcuts Android 构建产物，来源版本、提交及验证记录如下。\n\n"
+        f"版本：{version}（{version_code}） · 提交：`{value['commit']}`\n\n"
+        f"### 下载\n\n{download_section}\n\n"
+        f"### 验证\n\n"
+        f"[Android CI]({value['buildUrl']}) 已成功：JVM/Robolectric/Compose {jvm['tests']} 项测试，"
+        f"Android 35 模拟器 {device['tests']} 项测试（跳过 {device['skipped']} 项），失败和错误均为 0。"
+        f"Debug、R8 Release、Lint 及权限检查通过。模拟器结果不代表 OEM 真机验收。\n"
+    )
     Path('RELEASE-NOTES.md').write_text(notes)
     print(f'Prepared {len(list(output.iterdir()))} immutable assets for {value["tag"]}')
 
@@ -184,15 +340,28 @@ def publish():
     validate()
     if validation() != value:
         raise ValueError('Release tag, build attempt or artifacts changed during publication')
-    found = subprocess.run(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
-                           capture_output=True, text=True)
+    build_info_files = list(Path('release-assets').glob('*-BUILD-INFO.json'))
+    release_signed = bool(build_info_files and json.loads(build_info_files[0].read_text()).get('releaseSigned'))
+    prerelease = is_prerelease_release(tag, release_signed)
+
+    found = subprocess.run(
+        ['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
+        capture_output=True, text=True,
+    )
     if found.returncode:
         if 'not found' not in found.stderr.lower() and '404' not in found.stderr:
             raise RuntimeError(found.stderr)
-        command('gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--prerelease',
-                '--title', f'WebShortcuts {tag}', '--notes-file', 'RELEASE-NOTES.md')
-        found = subprocess.run(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
-                               capture_output=True, text=True, check=True)
+        create_args = [
+            'gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft',
+            '--title', f'WebShortcuts {tag}', '--notes-file', 'RELEASE-NOTES.md',
+        ]
+        if prerelease:
+            create_args.append('--prerelease')
+        command(*create_args)
+        found = subprocess.run(
+            ['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
+            capture_output=True, text=True, check=True,
+        )
     release = json.loads(found.stdout)
     existing = {a['name']: a for a in release['assets']}
     files = sorted(Path('release-assets').iterdir())
@@ -212,7 +381,15 @@ def publish():
         if hashlib.sha256((verify / path.name).read_bytes()).digest() != hashlib.sha256(path.read_bytes()).digest():
             raise ValueError(f'Release download checksum mismatch: {path.name}')
     if release['isDraft']:
-        command('gh', 'release', 'edit', tag, '--repo', repo, '--draft=false', '--prerelease', '--notes-file', 'RELEASE-NOTES.md')
+        edit_args = [
+            'gh', 'release', 'edit', tag, '--repo', repo,
+            '--draft=false',
+            f'--prerelease={"true" if prerelease else "false"}',
+            '--notes-file', 'RELEASE-NOTES.md',
+        ]
+        if not prerelease:
+            edit_args.append('--latest')
+        command(*edit_args)
     url = command('gh', 'release', 'view', tag, '--repo', repo, '--json', 'url', '--jq', '.url')
     print(f'Published and verified {url}')
     if os.environ.get('GITHUB_STEP_SUMMARY'):
@@ -222,5 +399,5 @@ def publish():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=['validate', 'package', 'publish'])
-    {'validate': validate, 'package': package, 'publish': publish}[parser.parse_args().phase]()
+    parser.add_argument('phase', choices=['sign', 'validate', 'package', 'publish'])
+    {'sign': sign, 'validate': validate, 'package': package, 'publish': publish}[parser.parse_args().phase]()

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -106,7 +107,9 @@ class ShortcutSourcesInteractionTest {
                 localDisplayName = "京都旅行.mhtml", mode = IconSourceMode.GENERATED,
                 preview = resolver.generated("旅行手记", "")))
         }
-        compose.onNodeWithTag("local_document_name").assertIsDisplayed()
+        compose.onNodeWithTag("local_document_name")
+            .performScrollTo().assertIsDisplayed().assertTextEquals("京都旅行.mhtml")
+        compose.onNodeWithTag("replace_local_document").performScrollTo().assertIsDisplayed()
         capture("editor_screen", "23_offline_editor.png")
     }
 
