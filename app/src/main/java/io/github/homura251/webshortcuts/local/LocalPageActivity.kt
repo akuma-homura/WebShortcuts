@@ -17,16 +17,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,11 +56,16 @@ import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.BookmarkSourceType
-import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
 import io.github.homura251.webshortcuts.ui.components.ExpressiveAlertDialog
+import io.github.homura251.webshortcuts.ui.components.ExpressiveIconButton
 import io.github.homura251.webshortcuts.ui.components.ExpressiveLoading
-import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveStatusPill
 import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalButton
+import io.github.homura251.webshortcuts.ui.components.TonalCard
+import io.github.homura251.webshortcuts.ui.components.TonalEmphasis
+import io.github.homura251.webshortcuts.ui.theme.AppTheme
+import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +113,7 @@ class LocalPageActivity : ComponentActivity() {
         var externalLink by remember(id) { mutableStateOf<String?>(null) }
         var webView by remember(id) { mutableStateOf<WebView?>(null) }
         val owner = LocalLifecycleOwner.current
+        val surfaces = AppTheme.surfaces
 
         LaunchedEffect(id, reload) {
             page = null
@@ -149,27 +157,51 @@ class LocalPageActivity : ComponentActivity() {
         }
         Scaffold(
             modifier = Modifier.testTag("local_page_reader"),
+            containerColor = surfaces.canvas,
             topBar = {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = surfaces.canvas,
+                        scrolledContainerColor = surfaces.scrolledBar,
+                    ),
                     title = {
-                        Column {
-                            Text(page?.first?.title ?: stringResource(R.string.local_reader_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(stringResource(R.string.local_reader_offline), style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                page?.first?.title ?: stringResource(R.string.local_reader_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            ExpressiveStatusPill(
+                                text = stringResource(R.string.local_reader_offline),
+                                icon = Icons.Default.OfflinePin,
+                                emphasis = TonalEmphasis.TERTIARY,
+                            )
                         }
                     },
-                    navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.local_reader_close)) } },
-                    actions = { IconButton(onClick = { reload++ }, enabled = !reading) {
-                        Icon(Icons.Default.Refresh, stringResource(R.string.local_reader_reload))
-                    } },
+                    navigationIcon = {
+                        ExpressiveIconButton(onClick = onClose) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.local_reader_close))
+                        }
+                    },
+                    actions = {
+                        ExpressiveIconButton(onClick = { reload++ }, enabled = !reading) {
+                            Icon(Icons.Default.Refresh, stringResource(R.string.local_reader_reload))
+                        }
+                    },
                 )
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when {
                     reading -> ExpressiveLoading(Modifier.align(Alignment.Center))
-                    error != null -> Column(Modifier.align(Alignment.Center).padding(28.dp).testTag("local_page_error"),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    error != null -> TonalCard(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp)
+                            .widthIn(max = 420.dp)
+                            .testTag("local_page_error"),
+                    ) {
                         Text(stringResource(R.string.local_reader_unavailable), style = MaterialTheme.typography.titleLarge)
                         Text(error.orEmpty(), style = MaterialTheme.typography.bodyLarge)
                         ExpressiveTonalButton(onClick = onClose) { Text(stringResource(R.string.local_reader_return)) }
@@ -186,8 +218,12 @@ class LocalPageActivity : ComponentActivity() {
                                         setBackgroundColor(background)
                                         configureOfflineWebView(this, bookmark.sourceType, darkTheme)
                                         val access = LocalPageAccessPolicy(file, bookmark.sourceType)
-                                        webViewClient = LocalPageWebViewClient(access,
-                                            onLoading = { loading = it }, onError = { error = it }, onExternalLink = { externalLink = it })
+                                        webViewClient = LocalPageWebViewClient(
+                                            access,
+                                            onLoading = { loading = it },
+                                            onError = { error = it },
+                                            onExternalLink = { externalLink = it },
+                                        )
                                         webView = this
                                         loadUrl(access.documentUrl)
                                     }
@@ -204,7 +240,7 @@ class LocalPageActivity : ComponentActivity() {
                                 },
                             )
                         }
-                        if (loading) ExpressiveLoading(Modifier.align(Alignment.TopCenter).testTag("local_page_loading"))
+                        if (loading) ExpressiveLoading(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).testTag("local_page_loading"))
                     }
                 }
             }
@@ -213,19 +249,27 @@ class LocalPageActivity : ComponentActivity() {
             ExpressiveAlertDialog(
                 onDismissRequest = { externalLink = null },
                 title = { Text(stringResource(R.string.local_open_link_title)) },
-                text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.local_open_link_message))
-                    Text(link.take(1024), maxLines = 5, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                } },
-                confirmButton = { ExpressiveTextButton(onClick = {
-                    externalLink = null
-                    try {
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE))
-                    } catch (_: Exception) {
-                        Toast.makeText(this@LocalPageActivity, R.string.local_no_browser, Toast.LENGTH_LONG).show()
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.local_open_link_message))
+                        Text(link.take(1024), maxLines = 5, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     }
-                }) { Text(stringResource(R.string.local_open_link_confirm)) } },
-                dismissButton = { ExpressiveTextButton(onClick = { externalLink = null }) { Text(stringResource(R.string.local_open_link_cancel)) } },
+                },
+                confirmButton = {
+                    ExpressiveTextButton(
+                        onClick = {
+                            externalLink = null
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE))
+                            } catch (_: Exception) {
+                                Toast.makeText(this@LocalPageActivity, R.string.local_no_browser, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                    ) { Text(stringResource(R.string.local_open_link_confirm)) }
+                },
+                dismissButton = {
+                    ExpressiveTextButton(onClick = { externalLink = null }) { Text(stringResource(R.string.local_open_link_cancel)) }
+                },
             )
         }
     }

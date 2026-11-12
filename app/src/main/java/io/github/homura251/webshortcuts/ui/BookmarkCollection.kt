@@ -1,9 +1,6 @@
 package io.github.homura251.webshortcuts.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,45 +8,33 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ViewList
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material3.FilterChip
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
-import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip
-import io.github.homura251.webshortcuts.ui.components.ExpressiveLoading
-import io.github.homura251.webshortcuts.ui.components.SectionHeader
-import io.github.homura251.webshortcuts.ui.components.ExpressiveVisibility
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,24 +43,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.R
 import io.github.homura251.webshortcuts.data.BookmarkItem
-import io.github.homura251.webshortcuts.data.IconSourceMode
 import io.github.homura251.webshortcuts.data.LibraryOrdering
 import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.data.TagFilter
 import io.github.homura251.webshortcuts.icons.IconResolver
+import io.github.homura251.webshortcuts.ui.components.ExpressiveChoiceOption
+import io.github.homura251.webshortcuts.ui.components.ExpressiveConnectedChoices
+import io.github.homura251.webshortcuts.ui.components.ExpressiveFilterChip
+import io.github.homura251.webshortcuts.ui.components.ExpressiveIconButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveLoading
+import io.github.homura251.webshortcuts.ui.components.ExpressiveProgressBar
+import io.github.homura251.webshortcuts.ui.components.ExpressiveSearchBar
+import io.github.homura251.webshortcuts.ui.components.ExpressiveStatusPill
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTextButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveTonalIconButton
+import io.github.homura251.webshortcuts.ui.components.ExpressiveVisibility
+import io.github.homura251.webshortcuts.ui.components.TonalCard
+import io.github.homura251.webshortcuts.ui.components.TonalEmphasis
+import io.github.homura251.webshortcuts.ui.theme.AppSpacing
 import io.github.homura251.webshortcuts.ui.theme.LayoutMode
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -103,61 +97,50 @@ internal fun BookmarkCollection(
     val locale = LocalConfiguration.current.locales[0]
     val filtered = remember(state.bookmarks, state.tags, state.query, state.tagFilter, state.sorting, state.sourceFilter, locale) {
         LibraryOrdering.bookmarks(LibrarySnapshot(state.bookmarks, state.tags), state.query, state.tagFilter, state.sorting, locale)
-            .filter { when (state.sourceFilter) { SourceFilter.ALL -> true; SourceFilter.WEB -> !it.isLocal; SourceFilter.LOCAL -> it.isLocal } }
+            .filter {
+                when (state.sourceFilter) {
+                    SourceFilter.ALL -> true
+                    SourceFilter.WEB -> !it.isLocal
+                    SourceFilter.LOCAL -> it.isLocal
+                }
+            }
     }
     val orderedTags = remember(state.bookmarks, state.tags, state.sorting, locale) {
         LibraryOrdering.tags(LibrarySnapshot(state.bookmarks, state.tags), state.sorting, locale)
     }
-    val autoCount = state.bookmarks.count { !it.isLocal && it.selectedIconSource == IconSourceMode.AUTO }
     val grid = layoutMode == LayoutMode.GRID
     // Two narrow cells cannot accommodate enlarged text and both 48dp action targets.
     val columns = if (grid && LocalDensity.current.fontScale < 1.5f) 2 else 1
+
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
-        modifier = Modifier.widthIn(max = 760.dp).fillMaxSize().testTag("bookmark_collection"),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 96.dp),
+        modifier = Modifier
+            .widthIn(max = AppSpacing.contentMaxWidth)
+            .fillMaxSize()
+            .testTag("bookmark_collection"),
+        contentPadding = PaddingValues(start = AppSpacing.page, end = AppSpacing.page, top = 4.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (state.bookmarks.isNotEmpty()) {
-            item(key = "collection_title", span = { GridItemSpan(maxLineSpan) }) {
-                SectionHeader(stringResource(R.string.home_collection_title), stringResource(R.string.home_collection_description))
+        if (state.error != null) {
+            item(key = "load_error", span = { GridItemSpan(maxLineSpan) }) {
+                ErrorNotice(state.error, title = stringResource(R.string.read_error_title))
             }
-            item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (state.query.isNotBlank() || state.tagFilter.active || state.sourceFilter != SourceFilter.ALL) {
-                            CountBadge(stringResource(R.string.filtered_count, filtered.size), Icons.Default.Search)
-                        } else {
-                            CountBadge(stringResource(R.string.bookmark_count, state.bookmarks.count { !it.isLocal }), Icons.Default.Language)
-                            val localCount = state.bookmarks.count { it.isLocal }
-                            if (localCount > 0) CountBadge(stringResource(R.string.home_local_count, localCount), Icons.Default.FolderOpen)
-                        }
-                    }
-                    IconButton(onClick = onShowSorting, enabled = !state.selectionMode && !state.transferBusy && !state.tagSaving && state.reorder == null,
-                        modifier = Modifier.testTag("open_bookmark_sort")) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.BOOKMARKS)))
-                    }
-                    FilledTonalIconButton(onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) }, enabled = state.reorder == null,
-                        modifier = Modifier.testTag("layout_toggle")) {
-                        Icon(if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
-                            contentDescription = stringResource(if (grid) R.string.show_list else R.string.show_grid))
-                    }
+        }
+        if (state.importingLocal) {
+            item(key = "local_import", span = { GridItemSpan(maxLineSpan) }) {
+                TonalCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+                    ExpressiveLoading(label = stringResource(R.string.local_document_importing))
                 }
             }
         }
-        if (state.error != null) item(key = "load_error", span = { GridItemSpan(maxLineSpan) }) {
-            ErrorNotice(state.error, title = stringResource(R.string.read_error_title))
-        }
-        if (state.importingLocal) item(key = "local_import", span = { GridItemSpan(maxLineSpan) }) {
-            ExpressiveLoading(label = stringResource(R.string.local_document_importing))
-        }
         when {
             state.loading -> item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 64.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 72.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     ExpressiveLoading()
                     Text(stringResource(R.string.loading_bookmarks), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -167,43 +150,167 @@ internal fun BookmarkCollection(
             }
             state.bookmarks.isNotEmpty() -> {
                 item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(Modifier.weight(1f)) { BookmarkSearch(state.query, onQueryChange, !state.selectionMode) }
-                        FilledTonalIconButton(onClick = onShowTagFilter, enabled = !state.selectionMode,
-                            modifier = Modifier.testTag("open_tag_filter")) { Icon(Icons.AutoMirrored.Filled.Label, stringResource(R.string.filter_tags)) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.compact),
+                    ) {
+                        Box(Modifier.weight(1f)) {
+                            ExpressiveSearchBar(
+                                query = state.query,
+                                onQueryChange = onQueryChange,
+                                placeholder = stringResource(R.string.search_hint),
+                                clearDescription = stringResource(R.string.clear_search),
+                                enabled = !state.selectionMode,
+                            )
+                        }
+                        ExpressiveTonalIconButton(
+                            onClick = onShowTagFilter,
+                            enabled = !state.selectionMode,
+                            highlighted = state.tagFilter.active,
+                            modifier = Modifier.size(52.dp).testTag("open_tag_filter"),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Label, stringResource(R.string.filter_tags))
+                        }
                     }
                 }
                 item(key = "source_filters", span = { GridItemSpan(maxLineSpan) }) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        SourceFilter.entries.forEach { source ->
-                            ExpressiveFilterChip(selected = state.sourceFilter == source,
-                                onClick = { onSourceFilterChange(source) },
-                                enabled = !state.selectionMode && state.reorder == null,
-                                label = { Text(stringResource(when (source) { SourceFilter.ALL -> R.string.source_all; SourceFilter.WEB -> R.string.source_web; SourceFilter.LOCAL -> R.string.source_local })) },
-                                modifier = Modifier.testTag("source_filter_${source.name}"))
+                    val options = listOf(
+                        ExpressiveChoiceOption(SourceFilter.ALL, stringResource(R.string.source_all), testTag = "source_filter_ALL"),
+                        ExpressiveChoiceOption(SourceFilter.WEB, stringResource(R.string.source_web), testTag = "source_filter_WEB"),
+                        ExpressiveChoiceOption(SourceFilter.LOCAL, stringResource(R.string.source_local), testTag = "source_filter_LOCAL"),
+                    )
+                    ExpressiveConnectedChoices(
+                        options = options,
+                        selected = state.sourceFilter,
+                        onSelect = onSourceFilterChange,
+                        enabled = !state.selectionMode && state.reorder == null,
+                        fillWidth = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item(key = "intro", span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.compact),
+                    ) {
+                        FlowRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (state.query.isNotBlank() || state.tagFilter.active || state.sourceFilter != SourceFilter.ALL) {
+                                ExpressiveStatusPill(
+                                    text = stringResource(R.string.filtered_count, filtered.size),
+                                    icon = Icons.Default.Search,
+                                    emphasis = TonalEmphasis.PRIMARY,
+                                )
+                            } else {
+                                ExpressiveStatusPill(
+                                    text = stringResource(R.string.bookmark_count, state.bookmarks.count { !it.isLocal }),
+                                    icon = Icons.Default.Language,
+                                    emphasis = TonalEmphasis.SECONDARY,
+                                )
+                                val localCount = state.bookmarks.count { it.isLocal }
+                                if (localCount > 0) {
+                                    ExpressiveStatusPill(
+                                        text = stringResource(R.string.home_local_count, localCount),
+                                        icon = Icons.Default.FolderOpen,
+                                        emphasis = TonalEmphasis.TERTIARY,
+                                    )
+                                }
+                            }
+                        }
+                        ExpressiveTonalIconButton(
+                            onClick = onShowSorting,
+                            enabled = !state.selectionMode && !state.transferBusy && !state.tagSaving && state.reorder == null,
+                            modifier = Modifier.testTag("open_bookmark_sort"),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Sort,
+                                stringResource(R.string.sort_current, sortLabel(state.sorting, OrderTarget.BOOKMARKS)),
+                            )
+                        }
+                        ExpressiveTonalIconButton(
+                            onClick = { onLayoutChange(if (grid) LayoutMode.LIST else LayoutMode.GRID) },
+                            enabled = state.reorder == null,
+                            highlighted = grid,
+                            modifier = Modifier.testTag("layout_toggle"),
+                        ) {
+                            Icon(
+                                if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                                contentDescription = stringResource(if (grid) R.string.show_list else R.string.show_grid),
+                            )
                         }
                     }
                 }
-                if (state.tagFilter.active) item(key = "tag_filters", span = { GridItemSpan(maxLineSpan) }) {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (state.tagFilter.untagged) FilterChip(true, { tagActions.filter(TagFilter()) },
-                            label = { Text(stringResource(R.string.untagged), style = MaterialTheme.typography.labelMedium) }, enabled = !state.selectionMode,
-                            modifier = Modifier.testTag("selected_untagged"))
-                        orderedTags.filter { it.id in state.tagFilter.ids }.forEach { tag ->
-                            FilterChip(true, { tagActions.toggleFilter(tag.id) }, label = { Text(tag.name, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
-                                trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) }, enabled = !state.selectionMode,
-                                modifier = Modifier.testTag("selected_filter_${tag.id}"))
+                if (state.tagFilter.active) {
+                    item(key = "tag_filters", span = { GridItemSpan(maxLineSpan) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (state.tagFilter.untagged) {
+                                ExpressiveFilterChip(
+                                    selected = true,
+                                    onClick = { tagActions.filter(TagFilter()) },
+                                    label = { Text(stringResource(R.string.untagged), style = MaterialTheme.typography.labelMedium) },
+                                    trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                                    enabled = !state.selectionMode,
+                                    modifier = Modifier.testTag("selected_untagged"),
+                                )
+                            }
+                            orderedTags.filter { it.id in state.tagFilter.ids }.forEach { tag ->
+                                ExpressiveFilterChip(
+                                    selected = true,
+                                    onClick = { tagActions.toggleFilter(tag.id) },
+                                    label = { Text(tag.name, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
+                                    trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                                    enabled = !state.selectionMode,
+                                    modifier = Modifier.testTag("selected_filter_${tag.id}"),
+                                )
+                            }
+                            ExpressiveTextButton(
+                                onClick = { tagActions.filter(TagFilter()) },
+                                enabled = !state.selectionMode,
+                                modifier = Modifier.testTag("clear_tag_filters"),
+                            ) {
+                                Text(stringResource(R.string.clear_tag_filters))
+                            }
                         }
-                        TextButton(onClick = { tagActions.filter(TagFilter()) }, enabled = !state.selectionMode,
-                            modifier = Modifier.testTag("clear_tag_filters")) { Text(stringResource(R.string.clear_tag_filters)) }
                     }
                 }
-                if (state.selectionMode) item(key = "batch_tags", span = { GridItemSpan(maxLineSpan) }) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { tagActions.editBatch(false) }, enabled = state.selectedIds.isNotEmpty() && !state.tagSaving,
-                            modifier = Modifier.testTag("batch_add_tags")) { Text(stringResource(R.string.add_tags)) }
-                        TextButton(onClick = { tagActions.editBatch(true) }, enabled = state.selectedIds.isNotEmpty() && !state.tagSaving,
-                            modifier = Modifier.testTag("batch_remove_tags")) { Text(stringResource(R.string.remove_tags)) }
+                if (state.selectionMode) {
+                    item(key = "batch_tags", span = { GridItemSpan(maxLineSpan) }) {
+                        TonalCard(
+                            emphasis = TonalEmphasis.SECONDARY,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(AppSpacing.compact),
+                                verticalArrangement = Arrangement.spacedBy(AppSpacing.micro),
+                            ) {
+                                ExpressiveTonalButton(
+                                    onClick = { tagActions.editBatch(false) },
+                                    enabled = state.selectedIds.isNotEmpty() && !state.tagSaving,
+                                    modifier = Modifier.testTag("batch_add_tags"),
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(stringResource(R.string.add_tags))
+                                }
+                                ExpressiveTonalButton(
+                                    onClick = { tagActions.editBatch(true) },
+                                    enabled = state.selectedIds.isNotEmpty() && !state.tagSaving,
+                                    modifier = Modifier.testTag("batch_remove_tags"),
+                                ) {
+                                    Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(stringResource(R.string.remove_tags))
+                                }
+                            }
+                        }
                     }
                 }
                 if (state.refreshing || state.refreshSummary != null) {
@@ -211,25 +318,71 @@ internal fun BookmarkCollection(
                         RefreshFeedback(state, onClearRefreshSummary)
                     }
                 }
-                if (filtered.isEmpty()) item(key = "no_results", span = { GridItemSpan(maxLineSpan) }) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.SearchOff, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(stringResource(R.string.no_results_title), Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium)
-                        Text(stringResource(R.string.no_results_body), Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { onQueryChange(""); onSourceFilterChange(SourceFilter.ALL); tagActions.filter(TagFilter()) }, Modifier.padding(top = 12.dp), enabled = !state.selectionMode) { Text(stringResource(R.string.clear_search)) }
+                if (filtered.isEmpty()) {
+                    item(key = "no_results", span = { GridItemSpan(maxLineSpan) }) {
+                        TonalCard(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    stringResource(R.string.no_results_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Text(
+                                    stringResource(R.string.no_results_body),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                ExpressiveTonalButton(
+                                    onClick = {
+                                        onQueryChange("")
+                                        onSourceFilterChange(SourceFilter.ALL)
+                                        tagActions.filter(TagFilter())
+                                    },
+                                    enabled = !state.selectionMode,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                ) {
+                                    Text(stringResource(R.string.clear_search))
+                                }
+                            }
+                        }
                     }
                 }
                 items(filtered, key = { it.id }, contentType = { "bookmark" }) { bookmark ->
                     BookmarkCard(
-                        bookmark, iconResolver, bookmark.id in state.refreshingIds, state.refreshMessages[bookmark.id],
-                        onOpen = { onOpen(bookmark) }, onPin = { onPin(bookmark) }, onEdit = { onEdit(bookmark) },
-                        onRefresh = { onRefresh(bookmark) }, onUpdateShortcut = { onUpdateShortcut(bookmark) },
-                        onDelete = { onDelete(bookmark) }, compact = columns > 1,
-                        tags = orderedTags.filter { it.id in bookmark.tagIds }, selectedTags = state.tagFilter.ids,
-                        onTagClick = tagActions.toggleFilter, onEditTags = { tagActions.edit(bookmark) },
+                        bookmark = bookmark,
+                        iconResolver = iconResolver,
+                        refreshing = bookmark.id in state.refreshingIds,
+                        refreshMessage = state.refreshMessages[bookmark.id],
+                        onOpen = { onOpen(bookmark) },
+                        onPin = { onPin(bookmark) },
+                        onEdit = { onEdit(bookmark) },
+                        onRefresh = { onRefresh(bookmark) },
+                        onUpdateShortcut = { onUpdateShortcut(bookmark) },
+                        onDelete = { onDelete(bookmark) },
+                        compact = columns > 1,
+                        tags = orderedTags.filter { it.id in bookmark.tagIds },
+                        selectedTags = state.tagFilter.ids,
+                        onTagClick = tagActions.toggleFilter,
+                        onEditTags = { tagActions.edit(bookmark) },
                         onLongClick = { tagActions.select(bookmark) },
-                        selectionMode = state.selectionMode, selected = bookmark.id in state.selectedIds,
-                        onSelect = { tagActions.select(bookmark) }, interactionBlocked = state.transferBusy || state.tagSaving,
+                        selectionMode = state.selectionMode,
+                        selected = bookmark.id in state.selectedIds,
+                        onSelect = { tagActions.select(bookmark) },
+                        interactionBlocked = state.transferBusy || state.tagSaving,
                         browserName = browserLabel(bookmark.browserPackage, state.browsers),
                     )
                 }
@@ -239,66 +392,35 @@ internal fun BookmarkCollection(
 }
 
 @Composable
-private fun CountBadge(text: String, icon: ImageVector) {
-    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(icon, null, Modifier.size(14.dp))
-            Text(text, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
-private fun BookmarkSearch(query: String, onQueryChange: (String) -> Unit, enabled: Boolean = true) {
-    var focused by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
-    Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = if (focused) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
-        TextField(
-            value = query, onValueChange = onQueryChange, enabled = enabled,
-            placeholder = { Text(stringResource(R.string.search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) IconButton(onClick = { onQueryChange("") }, enabled = enabled) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.clear_search))
-                }
-            },
-            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
-            shape = RoundedCornerShape(28.dp), singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
-            ),
-        )
-    }
-}
-
-@Composable
 private fun RefreshFeedback(state: HomeUiState, onClear: () -> Unit) {
     var lastSummary by remember { mutableStateOf(state.refreshSummary.orEmpty()) }
     LaunchedEffect(state.refreshSummary) { state.refreshSummary?.let { lastSummary = it } }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        AnimatedVisibility(state.refreshing) {
-            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                LinearProgressIndicator(
-                    progress = { if (state.refreshTotal > 0) (state.refreshCompleted.toFloat() / state.refreshTotal).coerceIn(0f, 1f) else 0f },
-                    modifier = Modifier.fillMaxWidth(),
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.compact)) {
+        ExpressiveVisibility(state.refreshing) {
+            TonalCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalSpacing = 8.dp) {
+                ExpressiveProgressBar(
+                    progress = {
+                        if (state.refreshTotal > 0) (state.refreshCompleted.toFloat() / state.refreshTotal).coerceIn(0f, 1f) else 0f
+                    },
                 )
-                Text(stringResource(R.string.refresh_progress_count, state.refreshCompleted, state.refreshTotal),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.refresh_progress_count, state.refreshCompleted, state.refreshTotal),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
-        AnimatedVisibility(state.refreshSummary != null) {
-            Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
+        ExpressiveVisibility(state.refreshSummary != null) {
+            TonalCard(
+                emphasis = TonalEmphasis.SECONDARY,
+                contentPadding = PaddingValues(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(lastSummary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    IconButton(onClick = onClear) {
+                    ExpressiveIconButton(onClick = onClear) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.dismiss_refresh_summary))
                     }
                 }

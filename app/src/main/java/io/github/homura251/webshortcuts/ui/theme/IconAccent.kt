@@ -2,6 +2,7 @@ package io.github.homura251.webshortcuts.ui.theme
 
 import android.graphics.Bitmap
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.key
@@ -71,5 +72,9 @@ internal fun tonalAccent(base: Color, accent: Color?, foreground: Color, seconda
 internal fun animatedIconTint(base: Color, accent: Color?, foreground: Color, secondaryForeground: Color = foreground): Color =
     // Reset the animation on theme changes so text never animates over the previous theme's surface.
     key(base, foreground, secondaryForeground) {
-        animateColorAsState(tonalAccent(base, accent, foreground, secondaryForeground), label = "icon tonal accent").value
+        animateColorAsState(
+            targetValue = tonalAccent(base, accent, foreground, secondaryForeground),
+            animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+            label = "icon_tonal_accent",
+        ).value
     }
