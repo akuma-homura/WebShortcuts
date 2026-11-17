@@ -98,4 +98,17 @@ class IconCandidatesTest {
         assertEquals(192, IconCandidates.size("garbage 999999x999999 192x512"))
         assertEquals(0, IconCandidates.size("-1x30 0x0"))
     }
+
+    @Test fun googleFallbackSendsOnlyTheHostname() {
+        val icon = IconCandidates.googleFallback("https://www.nodeseek.com:8443/post/123?token=private#part")!!
+        assertEquals("https://www.google.com/s2/favicons?domain=www.nodeseek.com&sz=512", icon.url)
+        assertEquals(CandidateKind.GOOGLE_S2, icon.kind)
+    }
+
+    @Test fun googleFallbackSkipsLocalAddressesAndCredentials() {
+        listOf("http://localhost/page", "http://router/page", "http://printer.local/page",
+            "http://service.localhost/page", "http://server.internal/page", "http://192.168.1.1/page",
+            "http://127.1/page", "http://[::1]/page", "https://user:secret@example.com/page",
+            "file:///tmp/page.html").forEach { assertNull(it, IconCandidates.googleFallback(it)) }
+    }
 }

@@ -2,7 +2,10 @@ package io.github.homura251.webshortcuts.icons
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
@@ -10,6 +13,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
+import okhttp3.OkHttpClient
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.*
@@ -192,7 +196,7 @@ class SiteIconDiscovererTest {
         val result = discoverer.fetch(server.url("/site").toString())
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
-        assertEquals(listOf("/site", "/bad.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+        assertEquals(listOf("/site", "/bad.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico", "/manifest.webmanifest", "/manifest.json"),
             recordedPaths(server.requestCount))
     }
 
@@ -210,7 +214,7 @@ class SiteIconDiscovererTest {
         try {
             assertEquals(server.url("/apple-touch-icon.png").toString(), result.sourceUrl)
             assertEquals("Apple Touch Icon · 256×256", result.description)
-            assertEquals(listOf("/site", "/tiny.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+            assertEquals(listOf("/site", "/tiny.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico", "/manifest.webmanifest", "/manifest.json"),
                 recordedPaths(server.requestCount))
         } finally { result.bitmap.recycle() }
     }
@@ -253,7 +257,7 @@ class SiteIconDiscovererTest {
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
         assertEquals(listOf("/site") + (1..9).map { "/bad$it.png" } +
-            listOf("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+            listOf("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico", "/manifest.webmanifest", "/manifest.json"),
             recordedPaths(server.requestCount))
     }
 
@@ -270,7 +274,7 @@ class SiteIconDiscovererTest {
         val result = discoverer.fetch(server.url("/site").toString())
         assertNotNull(result)
         assertTrue(result!!.sourceUrl.endsWith("/favicon.ico"))
-        assertEquals(listOf("/site", "/large.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"),
+        assertEquals(listOf("/site", "/large.png", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico", "/manifest.webmanifest", "/manifest.json"),
             recordedPaths(server.requestCount))
     }
 
@@ -285,21 +289,281 @@ class SiteIconDiscovererTest {
         }
     }
 
+    @Test fun blockedSubpageRecoversTheHomepageCdnIconWithoutLeakingItsQuery() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/private/topic?token=secret" -> MockResponse().setResponseCode(403)
+                "/" -> text("text/html", """<head><link rel="apple-touch-icon" href="https://cdn.example.com/logo.png"></head>""")
+                "/logo.png" -> png(512)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://example.com/private/topic?token=secret#part")!!
+        try {
+            assertEquals("https://cdn.example.com/logo.png", result.sourceUrl)
+            val paths = recordedPaths(server.requestCount)
+            assertEquals(1, paths.count { it == "/" })
+            assertFalse(paths.any { it!!.startsWith("/s2/") })
+            assertEquals(1, paths.count { it!!.contains("secret") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun brokenDeclaredImageAlsoTriggersHomepageDiscovery() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/topic" -> text("text/html", """<head><link rel="icon" href="/broken.png"></head>""")
+                "/" -> text("text/html", """<head><link rel="icon" href="/good.png"></head>""")
+                "/good.png" -> png(512)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/topic").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/good.png"))
+            val paths = recordedPaths(server.requestCount)
+            assertEquals(1, paths.count { it == "/" })
+            assertEquals(1, paths.count { it == "/favicon.ico" })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun conventionalManifestUpgradesSmallIconsAndUsesItsRedirectedBase() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", """<head><link rel="icon" href="/tiny.png"></head>""")
+                "/tiny.png" -> png(32)
+                "/manifest.webmanifest" -> MockResponse().setResponseCode(302).setHeader("Location", "/pwa/app.json")
+                "/pwa/app.json" -> text("application/manifest+json", """{"icons":[{"src":"large.png","sizes":"512x512"}]}""")
+                "/pwa/large.png" -> png(512)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/").toString())!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/pwa/large.png"))
+            assertEquals("Web App Manifest · 512×512", result.description)
+            assertEquals(1, recordedPaths(server.requestCount).count { it == "/" })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun conventionalJsonManifestIsTriedAfterMissingWebmanifest() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", "<head></head>")
+                "/manifest.json" -> text("application/json", """{"icons":[{"src":"icon.png","sizes":"512x512"}]}""")
+                "/icon.png" -> png(512)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = discoverer.fetch(server.url("/").toString())!!
+        try { assertTrue(result.sourceUrl.endsWith("/icon.png")) } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun missingOrGenericImageMimeStillRequiresAValidSignature() = runBlocking {
+        val bytes = pngBytes(512)
+        for (mime in listOf(null, "application/octet-stream")) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/" -> text("text/html", """<head><link rel="icon" href="/image"></head>""")
+                    "/image" -> MockResponse().setBody(Buffer().write(bytes)).also {
+                        if (mime != null) it.setHeader("Content-Type", mime)
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            val result = discoverer.fetch(server.url("/").toString())!!
+            try { assertTrue(result.sourceUrl.endsWith("/image")) } finally { result.bitmap.recycle() }
+        }
+    }
+
+    @Test fun fakeImagesInGenericResponsesAreRejectedBeforeTryingTheNextCandidate() = runBlocking {
+        for (mime in listOf(null, "application/octet-stream", "image/png", "text/html")) {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/" -> text("text/html", """<head><link rel="icon" sizes="512x512" href="/challenge"><link rel="icon" href="/good.png"></head>""")
+                    "/challenge" -> MockResponse().setBody("<html>Just a moment...</html>").also {
+                        if (mime != null) it.setHeader("Content-Type", mime)
+                    }
+                    "/good.png" -> png(512)
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            val result = discoverer.fetch(server.url("/").toString())!!
+            try { assertTrue(result.sourceUrl.endsWith("/good.png")) } finally { result.bitmap.recycle() }
+        }
+    }
+
+    @Test fun protectedSiteUsesGoogleOnlyAfterDirectDiscoveryAndFollowsItsImageRedirect() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/s2/favicons?domain=www.nodeseek.com&sz=512" -> MockResponse().setResponseCode(302)
+                    .setHeader("Location", "https://t2.gstatic.com/cached.png")
+                "/cached.png" -> png(128)
+                else -> MockResponse().setResponseCode(403).setHeader("cf-mitigated", "challenge")
+            }
+        }
+        val result = routedDiscoverer().fetch("https://www.nodeseek.com/post/123?token=secret#part")!!
+        try {
+            assertEquals("https://t2.gstatic.com/cached.png", result.sourceUrl)
+            assertEquals("低清回退 · Google S2 · 128×128", result.description)
+            val paths = recordedPaths(server.requestCount)
+            assertEquals(listOf("/s2/favicons?domain=www.nodeseek.com&sz=512", "/cached.png",
+                "/s2/favicons?domain=www.nodeseek.com&sz=256"), paths.takeLast(3))
+            assertTrue(paths.indexOf("/manifest.json") < paths.indexOf("/s2/favicons?domain=www.nodeseek.com&sz=512"))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun adequateDirectIconNeverContactsGoogleEvenWhenDiscoveryTimesOut() = runBlocking {
+        val small = pngBytes(192)
+        IconProcessor().decode(small, "image/png").recycle()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", """<head><link rel="icon" href="/small.png"></head>""")
+                "/small.png" -> MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(small))
+                else -> MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+            }
+        }
+        val result = routedDiscoverer(2_000).fetch("https://example.com/")!!
+        try {
+            assertTrue(result.sourceUrl.endsWith("/small.png"))
+            assertFalse(result.bitmap.isRecycled)
+            assertFalse(recordedPaths(server.requestCount).any { it!!.startsWith("/s2/") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun smallerGoogleRequestCanRecoverASharperImageThanThe512Request() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/s2/favicons?domain=example.com&sz=512" -> png(16)
+                "/s2/favicons?domain=example.com&sz=256" -> png(256)
+                else -> MockResponse().setResponseCode(403)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://example.com/")!!
+        try {
+            assertEquals("Google S2 · 256×256", result.description)
+            assertTrue(result.sourceUrl.endsWith("sz=256"))
+            assertEquals(listOf("/s2/favicons?domain=example.com&sz=512", "/s2/favicons?domain=example.com&sz=256"),
+                recordedPaths(server.requestCount).filter { it!!.startsWith("/s2/") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun lowResolutionDirectFaviconCanBeUpgradedByGoogle() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", "<head></head>")
+                "/favicon.ico" -> png(32)
+                "/s2/favicons?domain=google.com&sz=512" -> png(16)
+                "/s2/favicons?domain=google.com&sz=256" -> png(144)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://google.com/")!!
+        try {
+            assertEquals("低清回退 · Google S2 · 144×144", result.description)
+            assertTrue(result.sourceUrl.endsWith("sz=256"))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun smallerOrFailedGoogleImagesNeverReplaceTheBetterDirectIcon() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", "<head></head>")
+                "/favicon.ico" -> png(64)
+                "/s2/favicons?domain=example.com&sz=512" -> png(16)
+                "/s2/favicons?domain=example.com&sz=256" -> png(32)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://example.com/")!!
+        try {
+            assertEquals("https://example.com/favicon.ico", result.sourceUrl)
+            assertEquals("低清回退 · Favicon · 64×64", result.description)
+            assertFalse(result.bitmap.isRecycled)
+            assertEquals(3, recordedPaths(server.requestCount).count { it!!.startsWith("/s2/") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun slowDirectRequestLeavesTimeForHighResolutionGoogleFallback() = runBlocking {
+        val bytes = pngBytes(512)
+        IconProcessor().decode(bytes, "image/png").recycle()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.startsWith("/s2/")) MockResponse().setHeader("Content-Type", "image/png")
+                    .setBody(Buffer().write(bytes))
+                else MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+        }
+        val result = withTimeout(4_000) { routedDiscoverer(2_000).fetch("https://example.com/topic") }!!
+        try {
+            assertEquals("Google S2 · 512×512", result.description)
+            assertEquals(listOf("/topic", "/s2/favicons?domain=example.com&sz=512"), recordedPaths(server.requestCount))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun totalDeadlineAlsoBoundsAnUnresponsiveGoogleRequest() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.startsWith("/s2/")) MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                else MockResponse().setResponseCode(403)
+        }
+        val started = System.nanoTime()
+        assertNull(withTimeout(4_000) { routedDiscoverer(1_000).fetch("https://example.com/") })
+        assertTrue((System.nanoTime() - started) / 1_000_000 < 3_000)
+        assertTrue(recordedPaths(server.requestCount).last()!!.startsWith("/s2/"))
+    }
+
+    @Test fun callerCancellationAlsoStopsGoogleFallback() = runBlocking {
+        val enteredGoogle = CompletableDeferred<Unit>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.startsWith("/s2/")) {
+                    enteredGoogle.complete(Unit)
+                    MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                } else MockResponse().setResponseCode(403)
+        }
+        val job = launch { routedDiscoverer().fetch("https://example.com/")?.bitmap?.recycle() }
+        try {
+            withTimeout(4_000) { enteredGoogle.await() }
+            withTimeout(2_000) { job.cancelAndJoin() }
+            assertTrue(job.isCancelled)
+        } finally { job.cancelAndJoin() }
+    }
+
+    @Test fun invalidGoogleImageStillReturnsFailure() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.path!!.startsWith("/s2/")) text("application/octet-stream", "<html>not an icon</html>")
+                else MockResponse().setResponseCode(403)
+        }
+        assertNull(routedDiscoverer().fetch("https://example.com/"))
+    }
+
     @Test fun redirectLoopsAreBounded() = runBlocking {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =
                 MockResponse().setResponseCode(302).setHeader("Location", "/loop")
         }
         assertNull(discoverer.fetch(server.url("/loop").toString()))
-        // The page and each of the three root resources get at most four redirect attempts.
+        // The page, homepage, root images and conventional manifests each have bounded redirects.
         val loop = listOf("/loop", "/loop", "/loop")
         assertEquals(listOf("/loop") + loop + listOf("/apple-touch-icon.png") + loop +
-            listOf("/apple-touch-icon-precomposed.png") + loop + listOf("/favicon.ico") + loop,
+            listOf("/apple-touch-icon-precomposed.png") + loop + listOf("/favicon.ico") + loop +
+            listOf("/") + loop + listOf("/manifest.webmanifest") + loop + listOf("/manifest.json") + loop,
             recordedPaths(server.requestCount))
     }
 
     private fun recordedPaths(count: Int): List<String?> = (1..count).map {
         server.takeRequest(1, TimeUnit.SECONDS)?.path
+    }
+
+    /** Keep all public-site and S2 requests local, while retaining their logical response URL. */
+    private fun routedDiscoverer(timeout: Long = 25_000): SiteIconDiscoverer {
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val original = chain.request()
+            val local = server.url("/").newBuilder()
+                .encodedPath(original.url.encodedPath).encodedQuery(original.url.encodedQuery).build()
+            chain.proceed(original.newBuilder().url(local).build()).newBuilder().request(original).build()
+        }.build()
+        return SiteIconDiscoverer(IconProcessor(), client, timeout)
     }
 
     private fun text(type: String, body: String) = MockResponse().setHeader("Content-Type", type).setBody(body)
