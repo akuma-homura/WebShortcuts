@@ -19,7 +19,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import io.github.homura251.webshortcuts.shortcuts.BrowserLauncher
+import io.github.homura251.webshortcuts.shortcuts.BookmarkWindows
 import androidx.core.content.IntentCompat
 import io.github.homura251.webshortcuts.ui.TagActions
 import io.github.homura251.webshortcuts.ui.WebShortcutsApp
@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                     state = state, iconResolver = container.iconResolver, snackbarHostState = snackbar,
                     onQueryChange = viewModel::setQuery, onAdd = { viewModel.add() }, onEdit = viewModel::edit,
                     onOpen = { bookmark ->
-                        val result = BrowserLauncher.open(this, bookmark)
+                        val result = BookmarkWindows.open(this, bookmark)
                         if (!result.opened) viewModel.notify(result.message ?: "暂时无法打开此快捷方式")
                     },
                     onPin = viewModel::pin, onUpdateShortcut = viewModel::updateShortcut,

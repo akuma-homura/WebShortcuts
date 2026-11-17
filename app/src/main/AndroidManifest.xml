@@ -66,9 +66,16 @@
             android:exported="false" />
         <activity
             android:name=".shortcuts.ShortcutRouterActivity"
+            android:taskAffinity=""
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
+            android:theme="@style/Theme.WebShortcuts.Router" />
+        <activity
+            android:name=".shortcuts.BookmarkWindowActivity"
+            android:exported="false"
+            android:documentLaunchMode="intoExisting"
+            android:taskAffinity="${applicationId}.bookmarks"
             android:theme="@style/Theme.WebShortcuts.Router" />
     </application>
 </manifest>

@@ -260,7 +260,8 @@ class LocalPageActivity : ComponentActivity() {
                         onClick = {
                             externalLink = null
                             try {
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE))
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                             } catch (_: Exception) {
                                 Toast.makeText(this@LocalPageActivity, R.string.local_no_browser, Toast.LENGTH_LONG).show()
                             }

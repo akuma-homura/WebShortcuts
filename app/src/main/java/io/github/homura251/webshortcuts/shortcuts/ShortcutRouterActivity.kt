@@ -38,7 +38,7 @@ class ShortcutRouterActivity : ComponentActivity() {
                 val repository = (application as WebShortcutsApplication).container.repository
                 val bookmark = repository.find(id)
                 if (bookmark == null) message("此收藏已删除，请在 WebShortcuts 中重新添加")
-                else BrowserLauncher.open(this@ShortcutRouterActivity, bookmark).let { result ->
+                else BookmarkWindows.open(this@ShortcutRouterActivity, bookmark).let { result ->
                     if (!result.opened) message(result.message ?: "暂时无法打开收藏")
                 }
             } catch (cancelled: CancellationException) {

@@ -28,6 +28,13 @@ object BrowserLauncher {
     }
 
     fun openWeb(context: Context, url: String, browserPackage: String? = null): LaunchResult {
+        return launchWeb(context, url, browserPackage, separateTask = true)
+    }
+
+    internal fun openInBookmarkTask(context: Context, bookmark: BookmarkItem): LaunchResult =
+        launchWeb(context, bookmark.url, bookmark.browserPackage, separateTask = false)
+
+    private fun launchWeb(context: Context, url: String, browserPackage: String?, separateTask: Boolean): LaunchResult {
         val uri = try { Uri.parse(UrlNormalizer.normalize(url)) } catch (_: IllegalArgumentException) {
             return LaunchResult(false, "网址无效，请编辑此快捷方式")
         }
@@ -46,7 +53,7 @@ object BrowserLauncher {
                     .setShareState(CustomTabsIntent.SHARE_STATE_ON)
                     .build()
                 tab.intent.setPackage(browser.packageName)
-                if (context !is Activity) tab.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (separateTask || context !is Activity) tab.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 try {
                     tab.launchUrl(context, uri)
                     return LaunchResult(true)
@@ -58,11 +65,13 @@ object BrowserLauncher {
             }
             val intent = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
                 .setPackage(browser.packageName)
+            if (separateTask) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (start(context, intent)) return LaunchResult(true)
         }
         // Automatic mode may invoke Android's resolver for a non-standard undiscoverable browser.
         if (browserPackage == null && start(context,
-                Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))) return LaunchResult(true)
+                Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
+                    .apply { if (separateTask) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })) return LaunchResult(true)
         return LaunchResult(false, if (browserPackage == null) "未找到可用浏览器，请安装 Chrome、Firefox 等浏览器"
             else "无法启动所选浏览器 ${BrowserCatalog.knownLabel(browserPackage)}，请检查浏览器或更换设置")
     }

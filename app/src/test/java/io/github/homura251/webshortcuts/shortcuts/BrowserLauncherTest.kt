@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts.shortcuts
 
 import android.app.Application
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
@@ -21,6 +22,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
@@ -61,6 +63,42 @@ class BrowserLauncherTest {
         assertFalse(result.opened)
         assertTrue(result.message!!.contains("Chrome Beta"))
         assertNull(shadowOf(application).nextStartedActivity)
+    }
+
+    @Test fun directActivityLaunchDoesNotPutTheBrowserAboveTheCollection() {
+        installBrowser("org.mozilla.firefox", "Firefox", true)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            assertTrue(BrowserLauncher.openWeb(activity, "https://example.com/", "org.mozilla.firefox").opened)
+            val launched = shadowOf(activity).nextStartedActivity
+            assertEquals("https://example.com/", launched.dataString)
+            assertTrue(launched.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun bookmarkHostKeepsTheCustomTabInItsOwnDocumentTask() {
+        installBrowser("org.mozilla.firefox", "Firefox", true)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            assertTrue(BrowserLauncher.openInBookmarkTask(activity,
+                BookmarkItem(title = "Work", url = "https://example.com/work", browserPackage = "org.mozilla.firefox")).opened)
+            val launched = shadowOf(activity).nextStartedActivity
+            assertEquals("org.mozilla.firefox", launched.`package`)
+            assertTrue(launched.hasExtra(CustomTabsIntent.EXTRA_SESSION))
+            assertEquals(0, launched.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun documentIdentityUsesBookmarkIdInsteadOfItsEditableUrl() {
+        val first = BookmarkItem(title = "First", url = "https://example.com/")
+        val second = first.copy(id = java.util.UUID.randomUUID().toString())
+        val original = BookmarkWindows.intent(application, first.id)
+        assertEquals(original.data, BookmarkWindows.intent(application, first.copy(url = "https://changed.example/").id).data)
+        assertNotEquals(original.data, BookmarkWindows.intent(application, second.id).data)
+        assertNull(original.data?.host?.takeIf { it == "example.com" })
+        assertEquals(first.id, original.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID))
     }
 
     @Test fun providerFailureRetriesOnlyTheSelectedPackage() {
