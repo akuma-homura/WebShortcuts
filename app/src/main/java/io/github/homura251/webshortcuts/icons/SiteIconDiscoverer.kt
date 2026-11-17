@@ -3,6 +3,7 @@ package io.github.homura251.webshortcuts.icons
 import android.graphics.Bitmap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -50,27 +51,35 @@ class SiteIconDiscoverer(
                 val parsedUrl = url.toHttpUrlOrNull() ?: return@withContext null
                 if (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty()) return@withContext null
                 var bestResolution = 0
-                withTimeoutOrNull(fetchTimeoutMillis) {
-                    val candidates = mutableListOf<IconCandidate>()
-                    var pageUrl = parsedUrl.toString()
-                    val page = request(pageUrl, ResourceKind.HTML)
-                    if (page != null) {
-                        pageUrl = page.finalUrl
-                        val head = runCatching { IconCandidates.parseHead(page.text(), pageUrl) }.getOrNull()
-                        if (head != null) {
-                            candidates.addAll(head.candidates)
-                            for (manifestUrl in head.manifests) {
-                                coroutineContext.ensureActive()
-                                val manifest = request(manifestUrl, ResourceKind.MANIFEST) ?: continue
-                                candidates.addAll(runCatching { IconCandidates.parseManifest(manifest.text(), manifest.finalUrl) }.getOrDefault(emptyList()))
-                            }
-                        }
-                    }
-                    candidates.addAll(IconCandidates.rootFallbacks(pageUrl))
-                    for (candidate in IconCandidates.sorted(candidates)) {
-                        coroutineContext.ensureActive()
+                val attemptedImages = mutableSetOf<String>()
+                val attemptedManifests = mutableSetOf<String>()
+                var declaredManifest = false
+                var pageUrl = parsedUrl.toString()
+
+                suspend fun manifestCandidates(url: String): List<IconCandidate> {
+                    if (!attemptedManifests.add(url)) return emptyList()
+                    val manifest = request(url, ResourceKind.MANIFEST) ?: return emptyList()
+                    return runCatching { IconCandidates.parseManifest(manifest.text(), manifest.finalUrl) }
+                        .getOrDefault(emptyList())
+                }
+
+                suspend fun pageCandidates(url: String): List<IconCandidate> {
+                    val page = request(url, ResourceKind.HTML) ?: return emptyList()
+                    pageUrl = page.finalUrl
+                    val head = runCatching { IconCandidates.parseHead(page.text(), pageUrl) }.getOrNull()
+                        ?: return emptyList()
+                    declaredManifest = declaredManifest || head.manifests.isNotEmpty()
+                    val candidates = head.candidates.toMutableList()
+                    for (manifestUrl in head.manifests) candidates.addAll(manifestCandidates(manifestUrl))
+                    return candidates
+                }
+
+                suspend fun tryCandidates(candidates: List<IconCandidate>) {
+                    for (candidate in IconCandidates.sorted(candidates.filterNot { it.url in attemptedImages })) {
+                        currentCoroutineContext().ensureActive()
+                        if (!attemptedImages.add(candidate.url)) continue
                         val resource = request(candidate.url, ResourceKind.IMAGE) ?: continue
-                        val fetchContext = coroutineContext
+                        val fetchContext = currentCoroutineContext()
                         val decoded = try {
                             processor.decodeWithMetadata(resource.bytes, resource.mime, maskable = candidate.maskable,
                                 checkpoint = { fetchContext.ensureActive() })
@@ -79,7 +88,7 @@ class SiteIconDiscoverer(
                         } catch (_: Exception) {
                             continue
                         }
-                        try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                        try { fetchContext.ensureActive() } catch (cancelled: CancellationException) {
                             decoded.bitmap.recycle()
                             throw cancelled
                         }
@@ -90,7 +99,7 @@ class SiteIconDiscoverer(
                         if (resolution > bestResolution) {
                             val dimensions = if (decoded.scalable) "SVG · scalable"
                                 else "${decoded.sourceWidth}×${decoded.sourceHeight}"
-                            val quality = if (!decoded.scalable && resolution < 192) "低清回退 · " else ""
+                            val quality = if (candidate.kind == CandidateKind.GOOGLE_S2 || !decoded.scalable && resolution < 192) "低清回退 · " else ""
                             val previous = best
                             best = IconFetchResult(decoded.bitmap, resource.finalUrl, "$quality${candidate.kind.label} · $dimensions")
                             bestResolution = resolution
@@ -99,8 +108,34 @@ class SiteIconDiscoverer(
                             decoded.bitmap.recycle()
                         }
                         // Keep looking past small favicons and 192 px icons for a 512 px source.
-                        if (bestResolution >= IconPolicy.OUTPUT_SIZE) return@withTimeoutOrNull
+                        if (bestResolution >= IconPolicy.OUTPUT_SIZE) return
                     }
+                }
+
+                val fallback = IconCandidates.googleFallback(parsedUrl.toString())
+                // Reserve seven seconds for S2, within the existing total deadline. Local sites
+                // never use a third party and retain the whole budget for direct discovery.
+                val fallbackBudget = if (fallback == null) 0L else minOf(7_000L, fetchTimeoutMillis / 3)
+                withTimeoutOrNull(fetchTimeoutMillis) {
+                    withTimeoutOrNull(fetchTimeoutMillis - fallbackBudget) {
+                        val candidates = pageCandidates(pageUrl)
+                        tryCandidates(candidates + IconCandidates.rootFallbacks(pageUrl))
+                        if (best == null) {
+                            val homeUrl = IconCandidates.resolve(pageUrl, "/")
+                            if (homeUrl != null && homeUrl != pageUrl) {
+                                val homeCandidates = pageCandidates(homeUrl)
+                                tryCandidates(homeCandidates + IconCandidates.rootFallbacks(pageUrl))
+                            }
+                        }
+                        if (!declaredManifest && bestResolution < IconPolicy.OUTPUT_SIZE) {
+                            for (path in listOf("/manifest.webmanifest", "/manifest.json")) {
+                                val manifestUrl = IconCandidates.resolve(pageUrl, path) ?: continue
+                                tryCandidates(manifestCandidates(manifestUrl))
+                                if (bestResolution >= IconPolicy.OUTPUT_SIZE) break
+                            }
+                        }
+                    }
+                    if (best == null && fallback != null) tryCandidates(listOf(fallback))
                 }
                 // Our deadline can interrupt a slower candidate after a usable image was found.
                 best
@@ -168,7 +203,7 @@ class SiteIconDiscoverer(
                             val acceptedMime = when (kind) {
                                 ResourceKind.HTML -> mime == "text/html" || mime == "application/xhtml+xml"
                                 ResourceKind.MANIFEST -> mime in setOf("application/manifest+json", "application/json", "text/json", "text/plain")
-                                ResourceKind.IMAGE -> mime in IconPolicy.supportedMimeTypes
+                                ResourceKind.IMAGE -> mime == null || mime == "application/octet-stream" || mime in IconPolicy.supportedMimeTypes
                             }
                             // HTML can have a large body while its head remains small, so do not reject its Content-Length.
                             val validLength = kind == ResourceKind.HTML || body.contentLength() <= kind.maxBytes
@@ -177,7 +212,9 @@ class SiteIconDiscoverer(
                                 val bytes = body.byteStream().use { stream ->
                                     readResponse(stream, kind.maxBytes, kind == ResourceKind.HTML) { continuation.isActive }
                                 }
-                                Resource(reply.request.url.toString(), mime, mediaType?.charset(Charsets.UTF_8) ?: Charsets.UTF_8, bytes)
+                                // Generic download headers still require a supported image signature at decode time.
+                                val imageMime = if (kind == ResourceKind.IMAGE && mime == "application/octet-stream") null else mime
+                                Resource(reply.request.url.toString(), imageMime, mediaType?.charset(Charsets.UTF_8) ?: Charsets.UTF_8, bytes)
                             }
                         }
                     }

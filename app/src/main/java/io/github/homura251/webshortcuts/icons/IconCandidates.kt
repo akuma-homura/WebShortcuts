@@ -7,6 +7,7 @@ import java.util.Locale
 
 internal enum class CandidateKind(val label: String) {
     MANIFEST("Web App Manifest"), APPLE("Apple Touch Icon"), LINK("Website icon"), FAVICON("Favicon"),
+    GOOGLE_S2("Google S2"),
 }
 
 internal data class IconCandidate(
@@ -107,6 +108,22 @@ internal object IconCandidates {
     }
 
     fun rootFavicon(pageUrl: String): String? = resolve(pageUrl, "/favicon.ico")
+
+    /** Third-party discovery receives only a public-looking hostname, never the page URL. */
+    fun googleFallback(pageUrl: String): IconCandidate? {
+        val url = pageUrl.toHttpUrlOrNull() ?: return null
+        if (url.username.isNotEmpty() || url.password.isNotEmpty()) return null
+        val host = url.host.trimEnd('.')
+        if ('.' !in host || ':' in host || host.all { it.isDigit() || it == '.' } ||
+            listOf("localhost", "local", "internal", "lan", "home", "localdomain").any {
+                host == it || host.endsWith(".$it")
+            }) return null
+        val endpoint = "https://www.google.com/s2/favicons".toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("domain", host)
+            .addQueryParameter("sz", "128")
+            .build()
+        return IconCandidate(endpoint.toString(), CandidateKind.GOOGLE_S2)
+    }
 
     internal fun size(sizes: String): Int = sizes.lowercase(Locale.ROOT).split(Regex("\\s+"))
         .mapNotNull { value ->
