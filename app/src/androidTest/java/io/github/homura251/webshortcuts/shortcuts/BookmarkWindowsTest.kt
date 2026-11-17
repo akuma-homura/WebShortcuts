@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -41,7 +43,7 @@ class BookmarkWindowsTest {
         override fun onReceive(context: Context, intent: Intent) { opened.offer(intent) }
     }
 
-    @Before fun prepare() = runBlocking {
+    @Before fun prepare(): Unit = runBlocking {
         context.filesDir.listFiles()?.forEach { it.deleteRecursively() }
         application.container.repository.load()
         setFixtureEnabled(true)
@@ -68,6 +70,17 @@ class BookmarkWindowsTest {
         repository.save(second)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val main = collection()
+
+        // Reproduce a pre-upgrade mixed stack: a tab left directly above MainActivity.
+        opened.clear()
+        instrumentation.runOnMainSync {
+            CustomTabsIntent.Builder().build().apply { intent.setPackage(browser) }
+                .launchUrl(main, Uri.parse(first.url))
+        }
+        assertEquals(main.taskId, browserTask(first))
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        assertEquals(main.taskId, collection().taskId)
+
         val firstTask = open(main, first)
         assertNotEquals(main.taskId, firstTask)
         assertEquals(BookmarkWindowActivity::class.java.name,
@@ -112,6 +125,10 @@ class BookmarkWindowsTest {
     private fun open(activity: MainActivity, bookmark: BookmarkItem): Int {
         opened.clear()
         instrumentation.runOnMainSync { assertTrue(BookmarkWindows.open(activity, bookmark).opened) }
+        return browserTask(bookmark)
+    }
+
+    private fun browserTask(bookmark: BookmarkItem): Int {
         val event = opened.poll(15, TimeUnit.SECONDS) ?: error("The browser window did not resume")
         assertEquals(bookmark.url, event.getStringExtra("url"))
         assertTrue("The fixture must exercise Custom Tabs", event.getBooleanExtra("customTab", false))

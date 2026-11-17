@@ -44,7 +44,7 @@ JSON schemaVersion 为 4，读取兼容旧列表格式和 v1–3 字段；旧数
 
 `requestPinShortcut()` 返回 true 表示系统接受请求，仍需用户在启动器中确认。`updateShortcuts()` 返回 true 表示平台接受更新，并不能保证 OEM 启动器已经立即重绘；限流或拒绝时提供重试入口。
 
-在线收藏以独立的 `BookmarkWindowActivity` document task 为根，任务匹配键是收藏 UUID，不是可编辑的网址；不同收藏即使网址相同也分开，重复打开同一收藏复用任务卡片并读取最新保存的网址和浏览器。Custom Tab 位于该根之上，返回关闭网页时移除空窗口；应用的 launcher task 保持独立。旧桌面入口仍经透明路由转发，路由不使用应用主任务的 affinity。普通浏览器可能按其自身规则合并窗口。
+在线收藏以独立的 `BookmarkWindowActivity` document task 为根，任务匹配键是收藏 UUID，不是可编辑的网址；不同收藏即使网址相同也分开，重复打开同一收藏复用任务卡片并读取最新保存的网址和浏览器。Custom Tab 位于该根之上，返回关闭网页时移除空窗口；应用的 launcher task 保持独立，MainActivity 使用 singleTask，点击应用图标时也会清理旧版本遗留在主界面之上的网页。旧桌面入口仍经透明路由转发，路由不使用应用主任务的 affinity。普通浏览器可能按其自身规则合并窗口。
 
 优先选择 Chrome 的 Custom Tabs 提供者，否则使用其他提供者，最后退回可处理网址的系统浏览器。不创建 WebView，也不使用隔离的临时浏览会话。应用无权读取浏览器 Cookie。
 

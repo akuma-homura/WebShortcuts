@@ -101,6 +101,21 @@ class BrowserLauncherTest {
         assertEquals(first.id, original.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID))
     }
 
+    @Test fun plainBrowserFallbackDoesNotNeedAnEmptyBookmarkHost() {
+        installBrowser("org.example.browser", "Other Browser", false)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val result = BrowserLauncher.openInBookmarkTask(activity,
+                BookmarkItem(title = "Work", url = "https://example.com/work", browserPackage = "org.example.browser"))
+            assertTrue(result.opened)
+            assertFalse(result.customTab)
+            val launched = shadowOf(activity).nextStartedActivity
+            assertEquals("org.example.browser", launched.`package`)
+            assertTrue(launched.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun providerFailureRetriesOnlyTheSelectedPackage() {
         installBrowser("com.chrome.beta", "Chrome Beta", true)
         installBrowser("com.android.chrome", "Chrome", true)

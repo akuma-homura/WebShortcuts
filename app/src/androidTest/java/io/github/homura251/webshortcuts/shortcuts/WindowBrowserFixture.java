@@ -16,8 +16,9 @@ public class WindowBrowserFixture extends Activity {
         setContentView(text);
     }
 
-    @Override public void onResume() {
-        super.onResume();
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused) return;
         sendBroadcast(new Intent(ACTION_RESUMED).setPackage("io.github.homura251.webshortcuts")
             .putExtra("taskId", getTaskId()).putExtra("url", getIntent().getDataString())
             .putExtra("customTab", getIntent().hasExtra("android.support.customtabs.extra.SESSION")));

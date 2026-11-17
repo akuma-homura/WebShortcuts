@@ -61,8 +61,11 @@ class BookmarkWindowActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(bookmark.title))
                 val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
-                if (result.opened) browserOpened = true
-                else fail(result.message ?: "暂时无法打开收藏")
+                when {
+                    !result.opened -> fail(result.message ?: "暂时无法打开收藏")
+                    result.customTab -> browserOpened = true
+                    else -> finishAndRemoveTask()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
