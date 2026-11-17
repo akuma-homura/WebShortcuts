@@ -24,7 +24,9 @@ object BrowserCatalog {
             // still report the manifest default, including a provider subsequently enabled by the user.
             .mapNotNull { it.serviceInfo?.takeIf { service -> service.exported }?.packageName }
             .toSet()
-        return manager.queryIntentActivities(viewIntent, PackageManager.GET_RESOLVED_FILTER)
+        // Web intent queries otherwise collapse to the default browser on modern Android.
+        // Enumerating providers must retain the other installed browsers too.
+        return manager.queryIntentActivities(viewIntent, PackageManager.GET_RESOLVED_FILTER or PackageManager.MATCH_ALL)
             .mapNotNull { resolved ->
                 val activity = resolved.activityInfo ?: return@mapNotNull null
                 if (!activity.exported || activity.packageName == context.packageName) return@mapNotNull null
