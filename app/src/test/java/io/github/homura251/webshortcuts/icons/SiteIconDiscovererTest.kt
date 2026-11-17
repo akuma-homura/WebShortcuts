@@ -412,8 +412,8 @@ class SiteIconDiscovererTest {
         } finally { result.bitmap.recycle() }
     }
 
-    @Test fun usableSmallDirectIconNeverContactsGoogleEvenWhenDiscoveryTimesOut() = runBlocking {
-        val small = pngBytes(64)
+    @Test fun adequateDirectIconNeverContactsGoogleEvenWhenDiscoveryTimesOut() = runBlocking {
+        val small = pngBytes(192)
         IconProcessor().decode(small, "image/png").recycle()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
@@ -444,6 +444,42 @@ class SiteIconDiscovererTest {
             assertTrue(result.sourceUrl.endsWith("sz=256"))
             assertEquals(listOf("/s2/favicons?domain=example.com&sz=512", "/s2/favicons?domain=example.com&sz=256"),
                 recordedPaths(server.requestCount).filter { it!!.startsWith("/s2/") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun lowResolutionDirectFaviconCanBeUpgradedByGoogle() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", "<head></head>")
+                "/favicon.ico" -> png(32)
+                "/s2/favicons?domain=google.com&sz=512" -> png(16)
+                "/s2/favicons?domain=google.com&sz=256" -> png(144)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://google.com/")!!
+        try {
+            assertEquals("低清回退 · Google S2 · 144×144", result.description)
+            assertTrue(result.sourceUrl.endsWith("sz=256"))
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun smallerOrFailedGoogleImagesNeverReplaceTheBetterDirectIcon() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/" -> text("text/html", "<head></head>")
+                "/favicon.ico" -> png(64)
+                "/s2/favicons?domain=example.com&sz=512" -> png(16)
+                "/s2/favicons?domain=example.com&sz=256" -> png(32)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://example.com/")!!
+        try {
+            assertEquals("https://example.com/favicon.ico", result.sourceUrl)
+            assertEquals("低清回退 · Favicon · 64×64", result.description)
+            assertFalse(result.bitmap.isRecycled)
+            assertEquals(3, recordedPaths(server.requestCount).count { it!!.startsWith("/s2/") })
         } finally { result.bitmap.recycle() }
     }
 

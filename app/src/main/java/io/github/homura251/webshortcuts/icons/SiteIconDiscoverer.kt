@@ -135,7 +135,7 @@ class SiteIconDiscoverer(
                             }
                         }
                     }
-                    if (best == null && fallback != null) {
+                    if (bestResolution < 192 && fallback != null) {
                         // S2 can return a tiny icon for an unavailable size even when a smaller
                         // requested size has a sharper cached image. Keep the best actual pixels.
                         for (size in listOf(IconPolicy.OUTPUT_SIZE, 256, 128)) {
