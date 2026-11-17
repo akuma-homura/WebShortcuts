@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.browser.customtabs.CustomTabsService
 import androidx.core.content.ContextCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -49,8 +50,13 @@ class BookmarkWindowsTest {
         setFixtureEnabled(true)
         ContextCompat.registerReceiver(context, receiver, IntentFilter(WindowBrowserFixture.ACTION_RESUMED),
             ContextCompat.RECEIVER_EXPORTED)
-        assertTrue("The enabled fixture must be discoverable before testing task routing",
-            BrowserCatalog.list(context).any { it.packageName == instrumentation.context.packageName && it.supportsCustomTabs })
+        try {
+            await("The enabled fixture must be discoverable before testing task routing") {
+                BrowserCatalog.list(context).any { it.packageName == instrumentation.context.packageName && it.supportsCustomTabs }
+            }
+        } catch (failure: AssertionError) {
+            throw AssertionError("${failure.message}\n${fixtureDiscovery()}", failure)
+        }
     }
 
     @After fun close() {
@@ -155,5 +161,18 @@ class BookmarkWindowsTest {
                     PackageManager.DONT_KILL_APP)
             }
         } finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+    }
+
+    private fun fixtureDiscovery(): String {
+        val pkg = instrumentation.context.packageName
+        val pm = context.packageManager
+        val activities = pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE).setPackage(pkg), PackageManager.GET_RESOLVED_FILTER)
+            .map { "${it.activityInfo?.name}: enabled=${it.activityInfo?.enabled}, exported=${it.activityInfo?.exported}, authorities=${it.filter?.countDataAuthorities()}" }
+        val services = pm.queryIntentServices(Intent(CustomTabsService.ACTION_CUSTOM_TABS_CONNECTION).setPackage(pkg), 0)
+            .map { "${it.serviceInfo?.name}: enabled=${it.serviceInfo?.enabled}, exported=${it.serviceInfo?.exported}" }
+        val states = listOf(WindowBrowserFixture::class.java, WindowBrowserServiceFixture::class.java)
+            .associate { it.simpleName to pm.getComponentEnabledSetting(ComponentName(instrumentation.context, it)) }
+        return "caller=${context.packageName}, fixture=$pkg, states=$states, activities=$activities, services=$services, catalog=${BrowserCatalog.list(context)}"
     }
 }
