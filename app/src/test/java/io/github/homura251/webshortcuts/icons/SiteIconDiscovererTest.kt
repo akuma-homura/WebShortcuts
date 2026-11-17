@@ -395,7 +395,7 @@ class SiteIconDiscovererTest {
     @Test fun protectedSiteUsesGoogleOnlyAfterDirectDiscoveryAndFollowsItsImageRedirect() = runBlocking {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
-                "/s2/favicons?domain=www.nodeseek.com&sz=128" -> MockResponse().setResponseCode(302)
+                "/s2/favicons?domain=www.nodeseek.com&sz=512" -> MockResponse().setResponseCode(302)
                     .setHeader("Location", "https://t2.gstatic.com/cached.png")
                 "/cached.png" -> png(128)
                 else -> MockResponse().setResponseCode(403).setHeader("cf-mitigated", "challenge")
@@ -406,8 +406,9 @@ class SiteIconDiscovererTest {
             assertEquals("https://t2.gstatic.com/cached.png", result.sourceUrl)
             assertEquals("低清回退 · Google S2 · 128×128", result.description)
             val paths = recordedPaths(server.requestCount)
-            assertEquals(listOf("/s2/favicons?domain=www.nodeseek.com&sz=128", "/cached.png"), paths.takeLast(2))
-            assertTrue(paths.indexOf("/manifest.json") < paths.indexOf("/s2/favicons?domain=www.nodeseek.com&sz=128"))
+            assertEquals(listOf("/s2/favicons?domain=www.nodeseek.com&sz=512", "/cached.png",
+                "/s2/favicons?domain=www.nodeseek.com&sz=256"), paths.takeLast(3))
+            assertTrue(paths.indexOf("/manifest.json") < paths.indexOf("/s2/favicons?domain=www.nodeseek.com&sz=512"))
         } finally { result.bitmap.recycle() }
     }
 
@@ -429,8 +430,25 @@ class SiteIconDiscovererTest {
         } finally { result.bitmap.recycle() }
     }
 
-    @Test fun slowDirectRequestLeavesTimeForGoogleFallback() = runBlocking {
-        val bytes = pngBytes(128)
+    @Test fun smallerGoogleRequestCanRecoverASharperImageThanThe512Request() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/s2/favicons?domain=example.com&sz=512" -> png(16)
+                "/s2/favicons?domain=example.com&sz=256" -> png(256)
+                else -> MockResponse().setResponseCode(403)
+            }
+        }
+        val result = routedDiscoverer().fetch("https://example.com/")!!
+        try {
+            assertEquals("Google S2 · 256×256", result.description)
+            assertTrue(result.sourceUrl.endsWith("sz=256"))
+            assertEquals(listOf("/s2/favicons?domain=example.com&sz=512", "/s2/favicons?domain=example.com&sz=256"),
+                recordedPaths(server.requestCount).filter { it!!.startsWith("/s2/") })
+        } finally { result.bitmap.recycle() }
+    }
+
+    @Test fun slowDirectRequestLeavesTimeForHighResolutionGoogleFallback() = runBlocking {
+        val bytes = pngBytes(512)
         IconProcessor().decode(bytes, "image/png").recycle()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse =
@@ -440,8 +458,8 @@ class SiteIconDiscovererTest {
         }
         val result = withTimeout(4_000) { routedDiscoverer(2_000).fetch("https://example.com/topic") }!!
         try {
-            assertTrue(result.description.contains("Google S2"))
-            assertEquals(listOf("/topic", "/s2/favicons?domain=example.com&sz=128"), recordedPaths(server.requestCount))
+            assertEquals("Google S2 · 512×512", result.description)
+            assertEquals(listOf("/topic", "/s2/favicons?domain=example.com&sz=512"), recordedPaths(server.requestCount))
         } finally { result.bitmap.recycle() }
     }
 

@@ -99,7 +99,7 @@ class SiteIconDiscoverer(
                         if (resolution > bestResolution) {
                             val dimensions = if (decoded.scalable) "SVG · scalable"
                                 else "${decoded.sourceWidth}×${decoded.sourceHeight}"
-                            val quality = if (candidate.kind == CandidateKind.GOOGLE_S2 || !decoded.scalable && resolution < 192) "低清回退 · " else ""
+                            val quality = if (!decoded.scalable && resolution < 192) "低清回退 · " else ""
                             val previous = best
                             best = IconFetchResult(decoded.bitmap, resource.finalUrl, "$quality${candidate.kind.label} · $dimensions")
                             bestResolution = resolution
@@ -135,7 +135,16 @@ class SiteIconDiscoverer(
                             }
                         }
                     }
-                    if (best == null && fallback != null) tryCandidates(listOf(fallback))
+                    if (best == null && fallback != null) {
+                        // S2 can return a tiny icon for an unavailable size even when a smaller
+                        // requested size has a sharper cached image. Keep the best actual pixels.
+                        for (size in listOf(IconPolicy.OUTPUT_SIZE, 256, 128)) {
+                            if (bestResolution >= size) break
+                            val fallbackUrl = fallback.url.toHttpUrlOrNull()!!.newBuilder()
+                                .setQueryParameter("sz", size.toString()).build().toString()
+                            tryCandidates(listOf(fallback.copy(url = fallbackUrl)))
+                        }
+                    }
                 }
                 // Our deadline can interrupt a slower candidate after a usable image was found.
                 best

@@ -120,7 +120,7 @@ internal object IconCandidates {
             }) return null
         val endpoint = "https://www.google.com/s2/favicons".toHttpUrlOrNull()!!.newBuilder()
             .addQueryParameter("domain", host)
-            .addQueryParameter("sz", "128")
+            .addQueryParameter("sz", IconPolicy.OUTPUT_SIZE.toString())
             .build()
         return IconCandidate(endpoint.toString(), CandidateKind.GOOGLE_S2)
     }

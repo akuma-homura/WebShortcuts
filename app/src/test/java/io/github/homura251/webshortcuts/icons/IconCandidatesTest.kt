@@ -101,7 +101,7 @@ class IconCandidatesTest {
 
     @Test fun googleFallbackSendsOnlyTheHostname() {
         val icon = IconCandidates.googleFallback("https://www.nodeseek.com:8443/post/123?token=private#part")!!
-        assertEquals("https://www.google.com/s2/favicons?domain=www.nodeseek.com&sz=128", icon.url)
+        assertEquals("https://www.google.com/s2/favicons?domain=www.nodeseek.com&sz=512", icon.url)
         assertEquals(CandidateKind.GOOGLE_S2, icon.kind)
     }
 
