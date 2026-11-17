@@ -171,8 +171,12 @@ class BookmarkWindowsTest {
             .map { "${it.activityInfo?.name}: enabled=${it.activityInfo?.enabled}, exported=${it.activityInfo?.exported}, authorities=${it.filter?.countDataAuthorities()}" }
         val services = pm.queryIntentServices(Intent(CustomTabsService.ACTION_CUSTOM_TABS_CONNECTION).setPackage(pkg), 0)
             .map { "${it.serviceInfo?.name}: enabled=${it.serviceInfo?.enabled}, exported=${it.serviceInfo?.exported}" }
+        val globalActivities = pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE), PackageManager.GET_RESOLVED_FILTER).map { it.activityInfo?.packageName }
+        val globalServices = pm.queryIntentServices(Intent(CustomTabsService.ACTION_CUSTOM_TABS_CONNECTION), 0)
+            .map { it.serviceInfo?.packageName }
         val states = listOf(WindowBrowserFixture::class.java, WindowBrowserServiceFixture::class.java)
             .associate { it.simpleName to pm.getComponentEnabledSetting(ComponentName(instrumentation.context, it)) }
-        return "caller=${context.packageName}, fixture=$pkg, states=$states, activities=$activities, services=$services, catalog=${BrowserCatalog.list(context)}"
+        return "caller=${context.packageName}, fixture=$pkg, states=$states, activities=$activities, services=$services, globalActivities=$globalActivities, globalServices=$globalServices, catalog=${BrowserCatalog.list(context)}"
     }
 }

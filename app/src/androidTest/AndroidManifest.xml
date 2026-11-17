@@ -2,7 +2,7 @@
     <application>
         <activity
             android:name="io.github.homura251.webshortcuts.shortcuts.WindowBrowserFixture"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -13,7 +13,7 @@
         </activity>
         <service
             android:name="io.github.homura251.webshortcuts.shortcuts.WindowBrowserServiceFixture"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.support.customtabs.action.CustomTabsService" />

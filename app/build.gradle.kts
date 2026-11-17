@@ -13,7 +13,7 @@ android {
         targetSdk = 36
         versionCode = 21
         versionName = "1.5.1"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "io.github.homura251.webshortcuts.shortcuts.WindowTestRunner"
     }
     buildTypes {
         release {
