@@ -3,6 +3,7 @@ package io.github.homura251.webshortcuts.shortcuts
 import android.app.ActivityManager
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
@@ -16,10 +17,12 @@ import kotlinx.coroutines.launch
 class BookmarkWindowActivity : ComponentActivity() {
     private var routingJob: Job? = null
     private var browserOpened = false
+    private var leftForBrowser = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
+        leftForBrowser = browserOpened
         if (!browserOpened) route(intent)
     }
 
@@ -34,7 +37,17 @@ class BookmarkWindowActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // Returning from the browser must not expose an empty translucent window.
-        if (browserOpened) finishAndRemoveTask()
+        if (browserOpened && leftForBrowser) finishAndRemoveTask()
+    }
+
+    override fun onPause() {
+        if (browserOpened) leftForBrowser = true
+        super.onPause()
+    }
+
+    override fun onStop() {
+        if (browserOpened) leftForBrowser = true
+        super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -45,6 +58,7 @@ class BookmarkWindowActivity : ComponentActivity() {
     private fun route(incoming: Intent) {
         routingJob?.cancel()
         browserOpened = false
+        leftForBrowser = false
         routingJob = lifecycleScope.launch {
             try {
                 val id = incoming.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID)
@@ -68,13 +82,15 @@ class BookmarkWindowActivity : ComponentActivity() {
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
+                Log.w("BookmarkWindow", "Window launch failed: ${failure.javaClass.simpleName}")
                 fail("暂时无法打开收藏，请打开 WebShortcuts 检查本地数据")
             }
         }
     }
 
     private fun fail(message: String) {
+        Log.w("BookmarkWindow", message)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         finishAndRemoveTask()
     }

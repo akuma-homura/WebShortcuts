@@ -49,6 +49,8 @@ class BookmarkWindowsTest {
         setFixtureEnabled(true)
         ContextCompat.registerReceiver(context, receiver, IntentFilter(WindowBrowserFixture.ACTION_RESUMED),
             ContextCompat.RECEIVER_EXPORTED)
+        assertTrue("The enabled fixture must be discoverable before testing task routing",
+            BrowserCatalog.list(context).any { it.packageName == instrumentation.context.packageName && it.supportsCustomTabs })
     }
 
     @After fun close() {

@@ -3,12 +3,14 @@ package io.github.homura251.webshortcuts.shortcuts
 import android.app.Application
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
 import android.net.Uri
@@ -55,6 +57,17 @@ class BrowserLauncherTest {
         assertTrue(launched.hasExtra(CustomTabsIntent.EXTRA_SESSION))
         assertFalse(launched.getBooleanExtra("androidx.browser.customtabs.extra.ENABLE_EPHEMERAL_BROWSING", false))
         assertTrue(launched.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+    }
+
+    @Test fun runtimeEnabledProvidersAreNotRejectedByTheirManifestDefault() {
+        val pkg = "org.example.reenabled"
+        installBrowser(pkg, "Re-enabled Browser", true, declaredEnabled = false)
+        val manager = application.packageManager
+        for (name in listOf("$pkg.Browser", "$pkg.CustomTabs")) {
+            manager.setComponentEnabledSetting(ComponentName(pkg, name),
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+        }
+        assertTrue(BrowserCatalog.list(application).any { it.packageName == pkg && it.supportsCustomTabs })
     }
 
     @Test fun removedSelectionReturnsActionableErrorWithoutLaunchingAnything() {
@@ -130,7 +143,8 @@ class BrowserLauncherTest {
         assertEquals(setOf("com.chrome.beta"), attempts.map { it.`package` }.toSet())
     }
 
-    private fun installBrowser(packageName: String, label: String, customTabs: Boolean, host: String? = null) {
+    private fun installBrowser(packageName: String, label: String, customTabs: Boolean, host: String? = null,
+                               declaredEnabled: Boolean = true) {
         val appInfo = ApplicationInfo().apply { this.packageName = packageName; enabled = true }
         val filter = IntentFilter(Intent.ACTION_VIEW).apply {
             addCategory(Intent.CATEGORY_BROWSABLE); addCategory(Intent.CATEGORY_DEFAULT); addDataScheme("https")
@@ -138,7 +152,7 @@ class BrowserLauncherTest {
         }
         val activity = ResolveInfo().apply {
             activityInfo = ActivityInfo().apply {
-                this.packageName = packageName; name = "$packageName.Browser"; enabled = true; exported = true; applicationInfo = appInfo
+                this.packageName = packageName; name = "$packageName.Browser"; enabled = declaredEnabled; exported = true; applicationInfo = appInfo
             }
             nonLocalizedLabel = label
             this.filter = filter
@@ -148,7 +162,7 @@ class BrowserLauncherTest {
             .addCategory(Intent.CATEGORY_BROWSABLE), activity)
         if (customTabs) manager.addResolveInfoForIntent(Intent(CustomTabsService.ACTION_CUSTOM_TABS_CONNECTION), ResolveInfo().apply {
             serviceInfo = ServiceInfo().apply {
-                this.packageName = packageName; name = "$packageName.CustomTabs"; enabled = true; exported = true; applicationInfo = appInfo
+                this.packageName = packageName; name = "$packageName.CustomTabs"; enabled = declaredEnabled; exported = true; applicationInfo = appInfo
             }
         })
     }

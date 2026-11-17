@@ -20,12 +20,14 @@ object BrowserCatalog {
         val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.com/"))
             .addCategory(Intent.CATEGORY_BROWSABLE)
         val providers = manager.queryIntentServices(Intent(CustomTabsService.ACTION_CUSTOM_TABS_CONNECTION), 0)
-            .mapNotNull { it.serviceInfo?.takeIf { service -> service.enabled && service.exported }?.packageName }
+            // These queries already honor runtime enable overrides; ComponentInfo.enabled may
+            // still report the manifest default, including a provider subsequently enabled by the user.
+            .mapNotNull { it.serviceInfo?.takeIf { service -> service.exported }?.packageName }
             .toSet()
         return manager.queryIntentActivities(viewIntent, PackageManager.GET_RESOLVED_FILTER)
             .mapNotNull { resolved ->
                 val activity = resolved.activityInfo ?: return@mapNotNull null
-                if (!activity.enabled || !activity.exported || activity.packageName == context.packageName) return@mapNotNull null
+                if (!activity.exported || activity.packageName == context.packageName) return@mapNotNull null
                 // Do not present domain-specific deep-link apps as browsers. Custom Tabs services
                 // also identify browsers on OEMs that do not return the resolved filter.
                 if (resolved.filter?.countDataAuthorities() != 0 && activity.packageName !in providers) return@mapNotNull null
