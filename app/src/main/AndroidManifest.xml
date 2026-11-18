@@ -28,6 +28,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -66,9 +67,16 @@
             android:exported="false" />
         <activity
             android:name=".shortcuts.ShortcutRouterActivity"
+            android:taskAffinity=""
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
+            android:theme="@style/Theme.WebShortcuts.Router" />
+        <activity
+            android:name=".shortcuts.BookmarkWindowActivity"
+            android:exported="false"
+            android:documentLaunchMode="intoExisting"
+            android:taskAffinity="${applicationId}.bookmarks"
             android:theme="@style/Theme.WebShortcuts.Router" />
     </application>
 </manifest>
