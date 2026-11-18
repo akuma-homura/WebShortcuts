@@ -346,19 +346,32 @@ class BookmarkWindowsTest {
     private fun recordMinimization(action: () -> Unit) {
         val scales = listOf("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
             .associateWith { shell("settings get global $it").trim() }
-        var recorder: String? = null
+        val existingRecorders = shell("pidof screenrecord").trim().split(Regex("\\s+")).toSet()
+        var recorder: ParcelFileDescriptor? = null
+        var recorderPid: String? = null
         try {
             scales.keys.forEach { shell("settings put global $it 1") }
             val file = File(context.getExternalFilesDir(null), "screenshots/chrome-minimize.mp4")
             file.parentFile!!.mkdirs()
             file.delete()
-            recorder = shell("screenrecord --time-limit 15 ${file.absolutePath} >/dev/null 2>&1 & echo \$!").trim()
-            await("Recording must capture the browser before minimizing") { file.length() > 1024 }
+            // UiAutomation runs an executable directly; shell operators such as & are not parsed.
+            // Keep its output pipe open while screenrecord runs asynchronously in the shell UID.
+            recorder = instrumentation.uiAutomation.executeShellCommand(
+                "screenrecord --size 540x960 --time-limit 15 ${file.absolutePath}")
+            await("Recording must capture the browser before minimizing") {
+                recorderPid = shell("pidof screenrecord").trim().split(Regex("\\s+"))
+                    .firstOrNull { it !in existingRecorders && it.matches(Regex("[0-9]+")) }
+                recorderPid != null && file.length() > 1024
+            }
             action()
         } finally {
-            recorder?.takeIf { it.matches(Regex("[0-9]+")) }?.let { shell("kill -2 $it") }
-            scales.forEach { (key, value) ->
-                shell(if (value == "null") "settings delete global $key" else "settings put global $key $value")
+            try {
+                recorderPid?.let { shell("kill -2 $it") }
+                recorder?.close()
+            } finally {
+                scales.forEach { (key, value) ->
+                    shell(if (value == "null") "settings delete global $key" else "settings put global $key $value")
+                }
             }
         }
     }
