@@ -26,6 +26,18 @@ class PublicationGuardsTest(unittest.TestCase):
 
     def test_successful_exact_commit_build_is_accepted(self):
         publisher.validate_run(self.run, self.repo, self.sha)
+        publisher.validate_run(dict(self.run, event='push'), self.repo, self.sha)
+
+    def test_automatic_publication_requires_a_stable_tag_and_signature(self):
+        self.assertFalse(publisher.is_prerelease_release('v1.5.2', True, automatic=True))
+        for tag, signed in [('v1.5.2', False), ('v1.5.2-rc1', True)]:
+            with self.assertRaisesRegex(ValueError, 'stable tag and a signed release APK'):
+                publisher.is_prerelease_release(tag, signed, automatic=True)
+
+    def test_preview_requires_its_signing_key(self):
+        with patch.object(publisher, 'sign_apk_file', return_value=None):
+            with self.assertRaisesRegex(ValueError, 'dedicated Preview signing keystore'):
+                publisher.sign_preview()
 
     def test_another_commit_cannot_be_released_under_this_tag(self):
         with self.assertRaisesRegex(ValueError, 'does not match'):

@@ -26,11 +26,11 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 - **Material 3 Expressive**：统一 ColorScheme、字阶、表面层级与明暗主题；首页与编辑器使用集中封装的 TonalCard 和胶囊按钮，外观、排序和浏览器选择使用官方连体列表。选中、按压、加载、弹窗才启用表达性形状与 MotionScheme 动效，遵循系统动画缩放；150% 以上字体下网格自动单列，交互目标至少 48dp。
 - **隐私与资源限制**：只声明网络权限，无全盘/相册读取权限；文本、图像大小与分辨率均受限。
 
-在线收藏在支持 Custom Tabs 的浏览器中各有独立的最近任务窗口；同一收藏重复打开复用同一卡片，并按最新保存的网址打开。点击 WebShortcuts 应用图标返回收藏管理界面。窗口共享所选浏览器的正常登录状态。
+在线收藏在支持 Custom Tabs 的浏览器中各有独立的最近任务窗口；同一收藏重复打开复用同一卡片，并按最新保存的网址打开。卡片使用收藏名称和当前选用的图标（自动、自定义或字母图标），图标按系统的自适应图标形状显示。点击 WebShortcuts 应用图标返回收藏管理界面。窗口共享所选浏览器的正常登录状态。
 
 支持收起功能的浏览器（例如 Chrome）会在网页工具栏提供向下箭头：点击可收起为悬浮小窗，再通过小窗的展开按钮恢复原网页。该功能由浏览器和系统管理，无需 WebShortcuts 的悬浮窗权限；若按钮未显示，请检查浏览器版本及该浏览器的画中画设置。其他浏览器仍可正常打开网页，小窗数量与交互方式遵循浏览器和系统限制。
 
-系统可能为画中画网页分配新任务。WebShortcuts 会隐藏空宿主卡片并保留父任务关联，避免删除父任务时连带关闭小窗；空宿主可供同一收藏继续复用，由系统管理其资源。展开后仍是原来的浏览器窗口，最近任务卡片遵循浏览器和系统规则。
+系统可能为画中画网页分配新任务。WebShortcuts 会隐藏空宿主卡片并保留父任务关联，避免删除父任务时连带关闭小窗。收起后按系统任务顺序回到原界面，从收藏首页打开即可回到首页。展开后仍是原来的浏览器窗口，画中画过渡和最近任务卡片遵循浏览器和系统规则。
 
 ## 多账号与离线网页
 
@@ -47,18 +47,21 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 打开仓库的 **Actions → Android CI → 成功的运行记录 → Artifacts**：
 
 - `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
+- `WebShortcuts-preview`：手动运行时留空所有输入会生成 R8 压缩的调试 APK，可和正式版共存。桌面显示为 WebShortcuts Preview，收藏与正式版独立。CI 使用固定的 Preview 签名，仓库需配置 `PREVIEW_KEYSTORE_BASE64` 和 `PREVIEW_KEYSTORE_PASSWORD`，密钥别名为 `webshortcuts-preview`。
 - `WebShortcuts-release`：启用 R8 并由固定正式密钥签名的发布包，供日常安装和后续覆盖升级；仅在仓库配置签名密钥时生成。
 - `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，供自行签名。
-- `verification-reports`、`device-test-reports`：单元测试、Lint 和设备测试结果。
-- `device-screenshots`：Android 模拟器实际渲染的浅色、深色和编辑页截图，演示数据只存在于测试中。
+- `verification-reports`：单元测试和 Lint 结果。
+- `device-test-reports`、`device-screenshots`：手动勾选 `run_device_tests` 时生成的 Android 35 测试报告和截图。
 
 每个构建的 debug 签名由 CI 环境生成，跨运行安装时可能需要先卸载旧 debug 包。卸载会删除本地收藏；正式长期使用请维护固定的发布签名。发布签名和密钥不会写入仓库。
 
 ## 将 APK 发布到版本标签
 
-Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_run_id`。留空时正常构建和测试；填写版本标签及已成功的 CI 运行 ID 时，只发布这次运行的产物，不重复构建。
+普通推送和 PR 运行单元测试、Lint 和 APK 构建。手动运行且留空所有输入时构建共存调试包。勾选 `run_device_tests` 会运行完整构建和设备验证。
 
-先对目标 tag/分支运行 Android CI，等待构建、Lint 和 Android 35 设备测试成功，再使用对应 tag 与运行 ID 执行发布。任务会核对同仓库、精确提交 SHA、APK 版本、内嵌源码版本及测试报告；生成带来源运行 ID 的 APK、SHA-256 和构建信息，上传后重新下载校验，最后发布对应 Release。不会移动标签或覆盖同名附件。
+将与应用版本一致的 `vX.Y.Z` 标签推送到 GitHub 后，Android CI 自动构建并运行 Android 35 设备测试。Android Release 检查提交已进入主分支，验证正式签名 APK 后发布。失败的构建和缺少签名的构建不会自动发布。
+
+手动发布仍可在 Android CI 中填写 `publish_tag` 和 `build_run_id`，使用目标标签同一提交的成功构建和设备测试产物。发布任务核对源码提交、APK 版本和测试报告，生成 SHA-256 和构建信息，并重新下载校验附件。
 
 排查设备测试失败时，可单独填写 `inspect_run_id` 读取该次运行的完整 JUnit 失败信息，不构建或发布应用。
 
@@ -74,9 +77,11 @@ Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_ru
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:assembleRelease
-# 启动 Android 模拟器或连接设备之后：
+# 启动专用测试模拟器之后：
 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+设备测试会清理测试应用的数据。要复现 CI 的真实 Chrome 收起测试，请使用可执行 `adb root` 的 Android 35 Google APIs 测试模拟器，然后在仓库根目录运行 `bash .github/scripts/run-device-tests.sh`。
 
 Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手工安装 Gradle。
 
