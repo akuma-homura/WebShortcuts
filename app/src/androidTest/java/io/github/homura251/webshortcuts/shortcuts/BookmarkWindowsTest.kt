@@ -119,15 +119,17 @@ class BookmarkWindowsTest {
         })
 
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-        await("Closing a tab should also close its empty bookmark root") {
-            manager.appTasks.none { it.taskInfo?.taskId == firstTask }
-        }
+        await("Closing a tab must hide its empty bookmark card") { !hasVisibleTask(firstTask) }
         assertTrue(manager.appTasks.any { it.taskInfo?.taskId == secondTask })
-        assertEquals(main.taskId, collection().taskId)
+        val returnedMain = collection()
+        assertEquals(main.taskId, returnedMain.taskId)
+        assertEquals("A hidden anchor must remain reusable", firstTask, open(returnedMain, edited))
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        await("The reused empty card must hide again") { !hasVisibleTask(firstTask) }
     }
 
     @Test
-    fun minimizedFixturePreservesItsBrowserAndHostThroughRecreation() = runBlocking {
+    fun minimizedFixturePreservesItsBrowserAcrossHostRecreation() = runBlocking {
         val bookmark = BookmarkItem(title = "Floating fixture", url = "https://example.invalid/preserved",
             browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
         application.container.repository.save(bookmark)
@@ -136,17 +138,19 @@ class BookmarkWindowsTest {
         val task = open(main, bookmark)
         val instance = browserInstance
         assertNotNull(instance)
+        recreateHost(task)
+        opened.clear()
         await("The fixture must be ready to minimize") {
             instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
                 ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
         }
-        assertMinimizedAndRestore(task, main.taskId, recreateHost = true)
+        assertMinimizedAndRestore(task, main.taskId)
         // Android may retain a separate task after PiP; the actual browser instance and page
         // must survive, irrespective of the system-assigned browser task ID.
         browserTask(bookmark)
         assertEquals(instance, browserInstance)
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-        await("A finished browser should remove its bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
+        await("A finished browser must not expose an empty bookmark card") { !hasVisibleTask(task) }
     }
 
     @Test
@@ -163,34 +167,36 @@ class BookmarkWindowsTest {
                 ?.taskInfo?.taskId ?: -1
             task >= 0
         }
+        recreateHost(task)
+        var browserWindow = -1
+        await("Chrome's original browser window must be ready") {
+            instrumentation.uiAutomation.rootInActiveWindow?.takeIf {
+                it.findAccessibilityNodeInfosByViewId("com.android.chrome:id/custom_tabs_minimize_button").isNotEmpty()
+            }?.also { browserWindow = it.windowId } != null
+        }
         clickView("com.android.chrome:id/custom_tabs_minimize_button")
         assertMinimizedAndRestore(task, main.taskId)
         await("Chrome must restore its browser window") {
-            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.chrome"
+            instrumentation.uiAutomation.rootInActiveWindow?.let {
+                it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
+            } == true
         }
-        assertTrue("Restoration must retain the result-owning bookmark host", manager.appTasks.any { it.taskInfo?.taskId == task })
+        await("Restoration must not show an empty bookmark card") { !hasVisibleTask(task) }
         clickView("com.android.chrome:id/close_button")
-        await("Closing Chrome must remove its empty bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
+        await("Closing Chrome must dismiss its browser window") {
+            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.android.chrome"
+        }
+        assertFalse(hasVisibleTask(task))
+        assertEquals(main.taskId, collection().taskId)
     }
 
-    private fun assertMinimizedAndRestore(task: Int, mainTask: Int, recreateHost: Boolean = false) {
+    private fun assertMinimizedAndRestore(task: Int, mainTask: Int) {
         await("The browser must enter real Android picture-in-picture") {
             instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
-        assertTrue("Minimization must preserve the bookmark root", manager.appTasks.any { it.taskInfo?.taskId == task })
+        await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
         assertEquals(mainTask, collection().taskId)
         assertTrue("Opening the app must preserve the floating browser", instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode })
-        if (recreateHost) {
-            var host: BookmarkWindowActivity? = null
-            await("The host must stop behind the collection before recreation") {
-                instrumentation.runOnMainSync {
-                    host = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.STOPPED)
-                        .filterIsInstance<BookmarkWindowActivity>().firstOrNull { it.taskId == task }
-                }
-                host != null
-            }
-            instrumentation.runOnMainSync { host!!.recreate() }
-        }
         // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
         // full-screen action instead of coordinates, which can hit the collection underneath.
         await("Android must accept the floating window's full-screen action") {
@@ -199,6 +205,33 @@ class BookmarkWindowsTest {
         }
         await("The browser must leave picture-in-picture after expanding") {
             instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
+        }
+    }
+
+    private fun hasVisibleTask(task: Int): Boolean = manager.appTasks.any {
+        val info = it.taskInfo
+        info?.taskId == task && info.baseIntent.flags and Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS == 0
+    }
+
+    private fun recreateHost(task: Int) {
+        var host: BookmarkWindowActivity? = null
+        await("The browser must cover its host before recreation") {
+            instrumentation.runOnMainSync {
+                host = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.STOPPED)
+                    .filterIsInstance<BookmarkWindowActivity>().firstOrNull { it.taskId == task }
+            }
+            host != null
+        }
+        val original = host!!
+        instrumentation.runOnMainSync { original.recreate() }
+        await("The host must finish recreation without replacing the browser") {
+            var recreated = false
+            instrumentation.runOnMainSync {
+                recreated = original.isDestroyed && ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.STOPPED).filterIsInstance<BookmarkWindowActivity>()
+                    .any { it.taskId == task && it !== original }
+            }
+            recreated
         }
     }
 

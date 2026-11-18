@@ -3,13 +3,10 @@ package io.github.homura251.webshortcuts.shortcuts
 import android.app.ActivityManager
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityOptionsCompat
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
@@ -17,21 +14,20 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
-import java.util.UUID
 
 /** Keeps the browser's Custom Tab above a bookmark-specific document root, never above MainActivity. */
 class BookmarkWindowActivity : ComponentActivity() {
     private var routingJob: Job? = null
     private var browserOpened = false
     private var leftForBrowser = false
-    private var resultKey: String? = null
-    private var browserResult: ActivityResultLauncher<Intent>? = null
+    private var routingGeneration = 0
+    private var hasHostedTab = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
+        hasHostedTab = browserOpened || savedInstanceState?.getBoolean(STATE_HAS_HOSTED_TAB) == true
         leftForBrowser = browserOpened
-        if (browserOpened) registerBrowserResult(savedInstanceState?.getString(STATE_RESULT_KEY) ?: UUID.randomUUID().toString())
         if (!browserOpened) route(intent)
     }
 
@@ -45,14 +41,35 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // PiP can reveal this root while the browser is still alive. Keep the task for restoration,
-        // but do not leave a transparent activity intercepting the underlying application's input.
-        val key = resultKey
+        // Removing a PiP parent task also removes its floating child. Keep the empty anchor
+        // reusable but hide its card and move it behind the underlying app instead.
+        val generation = routingGeneration
         if (browserOpened && leftForBrowser) lifecycleScope.launch {
             yield()
-            if (key == resultKey && browserOpened && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                moveTaskToBack(true)
-            }
+            if (generation == routingGeneration && browserOpened && isEmptyHost()) hideHost()
+        }
+    }
+
+    private fun setHostExcluded(excluded: Boolean) {
+        getSystemService(ActivityManager::class.java).appTasks.firstOrNull { task ->
+            runCatching { task.taskInfo?.baseIntent?.filterEquals(intent) == true }.getOrDefault(false)
+        }?.setExcludeFromRecents(excluded)
+    }
+
+    private fun hideHost() {
+        setHostExcluded(true)
+        moveTaskToBack(true)
+    }
+
+    private fun closeHost() {
+        if (hasHostedTab) hideHost() else finishAndRemoveTask()
+    }
+
+    private fun isEmptyHost(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+        return getSystemService(ActivityManager::class.java).appTasks.any { task ->
+            val info = runCatching { task.taskInfo }.getOrNull()
+            info != null && info.taskId == taskId && info.numActivities == 1
         }
     }
 
@@ -68,15 +85,13 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_BROWSER_OPENED, browserOpened)
-        outState.putString(STATE_RESULT_KEY, resultKey)
+        outState.putBoolean(STATE_HAS_HOSTED_TAB, hasHostedTab)
         super.onSaveInstanceState(outState)
     }
 
     private fun route(incoming: Intent) {
+        routingGeneration++
         routingJob?.cancel()
-        browserResult?.unregister()
-        browserResult = null
-        resultKey = null
         browserOpened = false
         leftForBrowser = false
         routingJob = lifecycleScope.launch {
@@ -94,16 +109,15 @@ class BookmarkWindowActivity : ComponentActivity() {
                 }
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(bookmark.title))
-                registerBrowserResult(UUID.randomUUID().toString())
-                val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark) { tab, options ->
-                    browserResult!!.launch(tab, options?.let { bundle ->
-                        object : ActivityOptionsCompat() { override fun toBundle(): Bundle = bundle }
-                    })
-                }
+                val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
                 when {
                     !result.opened -> fail(result.message ?: "暂时无法打开收藏")
-                    result.customTab -> browserOpened = true
-                    else -> finishAndRemoveTask()
+                    result.customTab -> {
+                        browserOpened = true
+                        hasHostedTab = true
+                        setHostExcluded(false)
+                    }
+                    else -> closeHost()
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -114,31 +128,14 @@ class BookmarkWindowActivity : ComponentActivity() {
         }
     }
 
-    private fun registerBrowserResult(key: String) {
-        resultKey = key
-        browserResult = activityResultRegistry.register(key, ActivityResultContracts.StartActivityForResult()) {
-            // intoExisting may finish the previous tab while delivering a new bookmark intent.
-            // Let that intent invalidate the old key before deciding whether this task is empty.
-            lifecycleScope.launch {
-                yield()
-                if (resultKey == key) finishAndRemoveTask()
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        browserResult?.unregister()
-        super.onDestroy()
-    }
-
     private fun fail(message: String) {
         Log.w("BookmarkWindow", message)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        finishAndRemoveTask()
+        closeHost()
     }
 
     private companion object {
         const val STATE_BROWSER_OPENED = "browserOpened"
-        const val STATE_RESULT_KEY = "browserResultKey"
+        const val STATE_HAS_HOSTED_TAB = "hasHostedTab"
     }
 }
