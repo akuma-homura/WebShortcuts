@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts.shortcuts
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -10,6 +11,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsService
 import androidx.core.content.ContextCompat
@@ -25,6 +27,8 @@ import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.io.File
+import android.graphics.Bitmap
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -40,6 +44,7 @@ class BookmarkWindowsTest {
     private val application get() = context.applicationContext as WebShortcutsApplication
     private val manager get() = context.getSystemService(ActivityManager::class.java)
     private val opened = LinkedBlockingQueue<Intent>()
+    private var browserInstance: String? = null
     private var scenario: ActivityScenario<MainActivity>? = null
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) { opened.offer(intent) }
@@ -48,6 +53,9 @@ class BookmarkWindowsTest {
     @Before fun prepare(): Unit = runBlocking {
         context.filesDir.listFiles()?.forEach { it.deleteRecursively() }
         application.container.repository.load()
+        instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
         setFixtureEnabled(true)
         ContextCompat.registerReceiver(context, receiver, IntentFilter(WindowBrowserFixture.ACTION_RESUMED),
             ContextCompat.RECEIVER_EXPORTED)
@@ -61,6 +69,7 @@ class BookmarkWindowsTest {
     }
 
     @After fun close() {
+        shell("am force-stop com.android.chrome")
         context.unregisterReceiver(receiver)
         manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name }
             .forEach { it.finishAndRemoveTask() }
@@ -110,11 +119,149 @@ class BookmarkWindowsTest {
         })
 
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-        await("Closing a tab should also close its empty bookmark root") {
-            manager.appTasks.none { it.taskInfo?.taskId == firstTask }
-        }
+        await("Closing a tab must hide its empty bookmark card") { !hasVisibleTask(firstTask) }
         assertTrue(manager.appTasks.any { it.taskInfo?.taskId == secondTask })
+        val returnedMain = collection()
+        assertEquals(main.taskId, returnedMain.taskId)
+        assertEquals("A hidden anchor must remain reusable", firstTask, open(returnedMain, edited))
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        await("The reused empty card must hide again") { !hasVisibleTask(firstTask) }
+    }
+
+    @Test
+    fun minimizedFixturePreservesItsBrowserAcrossHostRecreation() = runBlocking {
+        val bookmark = BookmarkItem(title = "Floating fixture", url = "https://example.invalid/preserved",
+            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val main = collection()
+        val task = open(main, bookmark)
+        val instance = browserInstance
+        assertNotNull(instance)
+        recreateHost(task)
+        opened.clear()
+        await("The fixture must be ready to minimize") {
+            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
+                ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        }
+        assertMinimizedAndRestore(task, main.taskId)
+        // Android may retain a separate task after PiP; the actual browser instance and page
+        // must survive, irrespective of the system-assigned browser task ID.
+        browserTask(bookmark)
+        assertEquals(instance, browserInstance)
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        await("A finished browser must not expose an empty bookmark card") { !hasVisibleTask(task) }
+    }
+
+    @Test
+    fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
+        val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
+            browserPackage = "com.android.chrome", selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val main = collection()
+        instrumentation.runOnMainSync { assertTrue(BookmarkWindows.open(main, bookmark).opened) }
+        var task = -1
+        await("Chrome must open above a bookmark host") {
+            task = manager.appTasks.firstOrNull { it.taskInfo?.topActivity?.packageName == "com.android.chrome" }
+                ?.taskInfo?.taskId ?: -1
+            task >= 0
+        }
+        recreateHost(task)
+        var browserWindow = -1
+        await("Chrome's original browser window must be ready") {
+            instrumentation.uiAutomation.rootInActiveWindow?.takeIf {
+                it.findAccessibilityNodeInfosByViewId("com.android.chrome:id/custom_tabs_minimize_button").isNotEmpty()
+            }?.also { browserWindow = it.windowId } != null
+        }
+        clickView("com.android.chrome:id/custom_tabs_minimize_button")
+        assertMinimizedAndRestore(task, main.taskId)
+        await("Chrome must restore its browser window") {
+            instrumentation.uiAutomation.rootInActiveWindow?.let {
+                it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
+            } == true
+        }
+        await("Restoration must not show an empty bookmark card") { !hasVisibleTask(task) }
+        clickView("com.android.chrome:id/close_button")
+        await("Closing Chrome must dismiss its browser window") {
+            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.android.chrome"
+        }
+        assertFalse(hasVisibleTask(task))
         assertEquals(main.taskId, collection().taskId)
+    }
+
+    private fun assertMinimizedAndRestore(task: Int, mainTask: Int) {
+        await("The browser must enter real Android picture-in-picture") {
+            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        }
+        await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
+        assertEquals(mainTask, collection().taskId)
+        await("Opening the app must preserve the floating browser after its window transition") {
+            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        }
+        // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
+        // full-screen action instead of coordinates, which can hit the collection underneath.
+        await("Android must accept the floating window's full-screen action") {
+            instrumentation.uiAutomation.windows.firstOrNull { it.isInPictureInPictureMode }
+                ?.root?.performAction(AccessibilityNodeInfo.ACTION_EXPAND) == true
+        }
+        await("The browser must leave picture-in-picture after expanding") {
+            instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
+        }
+    }
+
+    private fun hasVisibleTask(task: Int): Boolean = manager.appTasks.any {
+        val info = it.taskInfo
+        info?.taskId == task && info.baseIntent.flags and Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS == 0
+    }
+
+    private fun recreateHost(task: Int) {
+        var host: BookmarkWindowActivity? = null
+        await("The browser must cover its host before recreation") {
+            instrumentation.runOnMainSync {
+                host = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.STOPPED)
+                    .filterIsInstance<BookmarkWindowActivity>().firstOrNull { it.taskId == task }
+            }
+            host != null
+        }
+        val original = host!!
+        instrumentation.runOnMainSync { original.recreate() }
+        await("The host must finish recreation without replacing the browser") {
+            var recreated = false
+            instrumentation.runOnMainSync {
+                recreated = original.isDestroyed && ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.STOPPED).filterIsInstance<BookmarkWindowActivity>()
+                    .any { it.taskId == task && it !== original }
+            }
+            recreated
+        }
+    }
+
+    private fun clickView(id: String) {
+        try {
+            await("Expected browser/system control: $id") {
+                instrumentation.uiAutomation.windows.asSequence().mapNotNull { it.root }
+                    .flatMap { it.findAccessibilityNodeInfosByViewId(id).asSequence() }
+                    .any { node ->
+                        var target: AccessibilityNodeInfo? = node
+                        while (target != null && !target.isClickable) target = target.parent
+                        target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                    }
+            }
+        } catch (failure: AssertionError) {
+            val file = File(context.getExternalFilesDir(null), "screenshots/pip-${id.substringAfterLast('/')}.png")
+            file.parentFile!!.mkdirs()
+            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+            fun describe(node: AccessibilityNodeInfo, depth: Int = 0): String = buildString {
+                appendLine("${node.viewIdResourceName}: ${node.className} text=${node.text} desc=${node.contentDescription} clickable=${node.isClickable}")
+                if (depth < 7) for (index in 0 until node.childCount) node.getChild(index)?.let { append(describe(it, depth + 1)) }
+            }
+            throw AssertionError("${failure.message}\n" + instrumentation.uiAutomation.windows
+                .mapNotNull { it.root }.joinToString("\n") { describe(it) }, failure)
+        }
     }
 
     private fun collection(): MainActivity {
@@ -156,6 +303,7 @@ class BookmarkWindowsTest {
         val event = opened.poll(15, TimeUnit.SECONDS) ?: error("The browser window did not resume")
         assertEquals(bookmark.url, event.getStringExtra("url"))
         assertTrue("The fixture must exercise Custom Tabs", event.getBooleanExtra("customTab", false))
+        browserInstance = event.getStringExtra("instanceId")
         return event.getIntExtra("taskId", -1).also { assertTrue(it >= 0) }
     }
 
@@ -165,7 +313,17 @@ class BookmarkWindowsTest {
             if (condition()) return
             Thread.sleep(50)
         }
-        fail(message)
+        val file = File(context.getExternalFilesDir(null), "screenshots/pip-timeout-${System.currentTimeMillis()}.png")
+        file.parentFile!!.mkdirs()
+        instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+        val windows = instrumentation.uiAutomation.windows.joinToString("\n") {
+            "window=${it.id}, pip=${it.isInPictureInPictureMode}, package=${it.root?.packageName}"
+        }
+        val tasks = manager.appTasks.joinToString("\n") { runCatching { it.taskInfo.toString() }.getOrDefault("task unavailable") }
+        fail("$message\n$windows\n$tasks")
     }
 
     private fun setFixtureEnabled(enabled: Boolean) {
