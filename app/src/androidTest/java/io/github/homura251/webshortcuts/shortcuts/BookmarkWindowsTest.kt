@@ -146,6 +146,15 @@ class BookmarkWindowsTest {
 
     @Test
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
+        // M124 caches feature values for the next process. Fully initialize Chrome once with
+        // the CI flags before inspecting its native CCT toolbar in a fresh browser process.
+        shell("am start -W -a android.intent.action.VIEW -d chrome://version -p com.android.chrome")
+        val version = context.packageManager.getPackageInfo("com.android.chrome", 0).versionName!!
+        await("Chrome must initialize and cache its native feature flags") {
+            instrumentation.uiAutomation.windows.mapNotNull { it.root }
+                .any { it.findAccessibilityNodeInfosByText(version).isNotEmpty() }
+        }
+        shell("am force-stop com.android.chrome")
         val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
             browserPackage = "com.android.chrome", selectedIconSource = IconSourceMode.GENERATED)
         application.container.repository.save(bookmark)
