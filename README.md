@@ -49,16 +49,16 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 - `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
 - `WebShortcuts-release`：启用 R8 并由固定正式密钥签名的发布包，供日常安装和后续覆盖升级；仅在仓库配置签名密钥时生成。
 - `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，供自行签名。
-- `verification-reports`、`device-test-reports`：单元测试、Lint 和设备测试结果。
-- `device-screenshots`：Android 模拟器实际渲染的浅色、深色和编辑页截图，演示数据只存在于测试中。
+- `verification-reports`：单元测试和 Lint 结果。
+- `device-test-reports`、`device-screenshots`：手动勾选 `run_device_tests` 时生成的 Android 35 测试报告和截图。
 
 每个构建的 debug 签名由 CI 环境生成，跨运行安装时可能需要先卸载旧 debug 包。卸载会删除本地收藏；正式长期使用请维护固定的发布签名。发布签名和密钥不会写入仓库。
 
 ## 将 APK 发布到版本标签
 
-Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_run_id`。留空时正常构建和测试；填写版本标签及已成功的 CI 运行 ID 时，只发布这次运行的产物，不重复构建。
+Android CI 默认运行单元测试、Lint 和 APK 构建。要运行设备测试，请在 Actions 手动运行时勾选 `run_device_tests`。填写 `publish_tag` 和 `build_run_id` 会发布指定运行的产物。
 
-先对目标 tag/分支运行 Android CI，等待构建、Lint 和 Android 35 设备测试成功，再使用对应 tag 与运行 ID 执行发布。任务会核对同仓库、精确提交 SHA、APK 版本、内嵌源码版本及测试报告；生成带来源运行 ID 的 APK、SHA-256 和构建信息，上传后重新下载校验，最后发布对应 Release。不会移动标签或覆盖同名附件。
+先对目标 tag 或同一提交的分支手动运行 Android CI，勾选 `run_device_tests`。等待构建、Lint 和 Android 35 设备测试成功，再用对应 tag 和运行 ID 执行发布。任务会核对同仓库、精确提交 SHA、APK 版本、内嵌源码版本及测试报告；生成带来源运行 ID 的 APK、SHA-256 和构建信息，上传后重新下载校验，最后发布对应 Release。不会移动标签或覆盖同名附件。
 
 排查设备测试失败时，可单独填写 `inspect_run_id` 读取该次运行的完整 JUnit 失败信息，不构建或发布应用。
 
@@ -74,9 +74,11 @@ Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_ru
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:assembleRelease
-# 启动 Android 模拟器或连接设备之后：
+# 启动专用测试模拟器之后：
 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+设备测试会清理测试应用的数据。要复现 CI 的真实 Chrome 收起测试，请使用可执行 `adb root` 的 Android 35 Google APIs 测试模拟器，然后在仓库根目录运行 `bash .github/scripts/run-device-tests.sh`。
 
 Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手工安装 Gradle。
 

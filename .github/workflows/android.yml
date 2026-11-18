@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      run_device_tests:
+        description: 'Run Android 35 device tests (needed for tagged releases)'
+        type: boolean
+        default: false
       publish_tag:
         description: 'Optional existing tag to publish, e.g. v1.5.0'
         required: false
@@ -92,7 +96,7 @@ jobs:
           retention-days: 30
 
   device-tests:
-    if: github.event_name != 'workflow_dispatch' || (inputs.publish_tag == '' && inputs.inspect_run_id == '')
+    if: github.event_name == 'workflow_dispatch' && inputs.run_device_tests && inputs.publish_tag == '' && inputs.inspect_run_id == ''
     name: Android 35 device tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
