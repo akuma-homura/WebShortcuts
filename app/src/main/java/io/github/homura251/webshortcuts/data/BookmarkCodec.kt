@@ -140,8 +140,12 @@ object BookmarkCodec {
         require(library.bookmarks.all { ids.containsAll(it.tagIds) }) { "收藏引用了不存在的标签" }
     }
 
+    fun validateId(id: String) {
+        require(id.isNotBlank() && id.length <= 128 && id.none { it.isISOControl() }) { "收藏 ID 无效" }
+    }
+
     fun validate(item: BookmarkItem) {
-        require(item.id.isNotBlank() && item.id.length <= 128 && item.id.none { it.isISOControl() }) { "收藏 ID 无效" }
+        validateId(item.id)
         require(item.title.isNotBlank() && item.title.length <= 160 && item.title.none { it.isISOControl() }) {
             "名称应为 1 至 160 个字符，且不能包含换行"
         }

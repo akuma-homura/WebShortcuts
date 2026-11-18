@@ -19,6 +19,23 @@ import java.io.File
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class IconStoreTest {
+    @Test fun legacyIdsAndRepeatedRevisionsAllocateIndependentSafeFiles() = runBlocking {
+        val id = "旧收藏 / " + "x".repeat(110)
+        val image = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        try {
+            image.eraseColor(Color.RED)
+            val first = store.save(id, 1, IconSourceMode.CUSTOM, image)
+            image.eraseColor(Color.BLUE)
+            val second = store.save(id, 1, IconSourceMode.CUSTOM, image)
+            val original = store.saveOriginal(id, 1, image)
+            assertNotEquals(first, second)
+            assertEquals(Color.RED, store.read(first)!!.getPixel(0, 0))
+            assertEquals(Color.BLUE, store.read(second)!!.getPixel(0, 0))
+            assertNotNull(store.readOriginal(original))
+            listOf(first, second, original).forEach { assertFalse(it.contains(id)) }
+        } finally { image.recycle() }
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val store = IconStore(context)
     private val processor = IconProcessor()

@@ -238,29 +238,14 @@ class BookmarkWindowsTest {
     }
 
     private fun clickView(id: String) {
-        try {
-            await("Expected browser/system control: $id") {
-                instrumentation.uiAutomation.windows.asSequence().mapNotNull { it.root }
-                    .flatMap { it.findAccessibilityNodeInfosByViewId(id).asSequence() }
-                    .any { node ->
-                        var target: AccessibilityNodeInfo? = node
-                        while (target != null && !target.isClickable) target = target.parent
-                        target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-                    }
-            }
-        } catch (failure: AssertionError) {
-            val file = File(context.getExternalFilesDir(null), "screenshots/pip-${id.substringAfterLast('/')}.png")
-            file.parentFile!!.mkdirs()
-            instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
-                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                bitmap.recycle()
-            }
-            fun describe(node: AccessibilityNodeInfo, depth: Int = 0): String = buildString {
-                appendLine("${node.viewIdResourceName}: ${node.className} text=${node.text} desc=${node.contentDescription} clickable=${node.isClickable}")
-                if (depth < 7) for (index in 0 until node.childCount) node.getChild(index)?.let { append(describe(it, depth + 1)) }
-            }
-            throw AssertionError("${failure.message}\n" + instrumentation.uiAutomation.windows
-                .mapNotNull { it.root }.joinToString("\n") { describe(it) }, failure)
+        await("Expected browser/system control: $id") {
+            instrumentation.uiAutomation.windows.asSequence().mapNotNull { it.root }
+                .flatMap { it.findAccessibilityNodeInfosByViewId(id).asSequence() }
+                .any { node ->
+                    var target: AccessibilityNodeInfo? = node
+                    while (target != null && !target.isClickable) target = target.parent
+                    target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                }
         }
     }
 

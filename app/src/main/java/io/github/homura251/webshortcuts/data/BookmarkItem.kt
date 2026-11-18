@@ -3,6 +3,12 @@ package io.github.homura251.webshortcuts.data
 import java.util.UUID
 import io.github.homura251.webshortcuts.icons.CropRect
 
+/** File names are freshly allocated, so wrapping the cache revision cannot overwrite old assets. */
+internal fun nextImageVersion(current: Int): Int {
+    require(current >= 0)
+    return if (current == Int.MAX_VALUE) 1 else current + 1
+}
+
 /** Explicit icon selection. AUTO retains its mode even when rendering falls back to a monogram. */
 enum class IconSourceMode { AUTO, CUSTOM, GENERATED }
 

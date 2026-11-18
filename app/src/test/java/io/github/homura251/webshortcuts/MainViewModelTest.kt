@@ -63,6 +63,20 @@ class MainViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun editingAValidMaximumRevisionDoesNotOverflow() = runBlocking {
+        val original = seedBookmark(IconSourceMode.GENERATED).copy(imageVersion = Int.MAX_VALUE)
+        application.container.repository.save(original)
+        val vm = createViewModel()
+        vm.edit(original)
+        vm.setTitle("Updated at the revision limit")
+        vm.save()
+        awaitEditorClosed(vm)
+        val updated = application.container.repository.find(original.id)!!
+        assertEquals("Updated at the revision limit", updated.title)
+        assertEquals(1, updated.imageVersion)
+        assertEquals(original.customImagePath, updated.customImagePath)
+    }
+
     @Test fun `switching custom to generated and auto preserves the inactive custom image`() = runBlocking {
         val original = seedBookmark(IconSourceMode.CUSTOM)
         val vm = createViewModel()
