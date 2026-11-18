@@ -28,11 +28,13 @@ class BookmarkWindowActivity : ComponentActivity() {
     private var routingJob: Job? = null
     private var returnJob: Job? = null
     private var browserOpened = false
+    private var leftForBrowser = false
     private var hasHostedTab = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
+        leftForBrowser = browserOpened
         hasHostedTab = browserOpened || savedInstanceState?.getBoolean(STATE_HAS_HOSTED_TAB) == true
         // Recreating an Activity clears its task description. Refresh the artwork while leaving
         // an already hosted browser alone, including when it is floating in another task.
@@ -51,13 +53,15 @@ class BookmarkWindowActivity : ComponentActivity() {
         super.onPostResume()
         // Removing a PiP parent task also removes its floating child. Keep the empty anchor
         // reusable but hide its card and move it behind the underlying app instead.
-        if (!browserOpened) return
+        if (!browserOpened || !leftForBrowser) return
         returnJob?.cancel()
         returnJob = lifecycleScope.launch {
-            val fastPollUntil = SystemClock.uptimeMillis() + 500
+            val started = SystemClock.uptimeMillis()
             // The system can resume this Activity before publishing the detached tab's task info.
             while (!isEmptyHost() || !hideHost()) {
-                delay(if (SystemClock.uptimeMillis() < fastPollUntil) 16 else 250)
+                val elapsed = SystemClock.uptimeMillis() - started
+                if (elapsed >= 2_000) break
+                delay(if (elapsed < 500) 16 else 250)
             }
         }
     }
@@ -79,7 +83,12 @@ class BookmarkWindowActivity : ComponentActivity() {
     }
 
     private fun closeHost() {
-        if (hasHostedTab) hideHost() else finishAndRemoveTask()
+        if (hasHostedTab) {
+            setHostExcluded(true)
+            moveTaskToBack(true)
+        } else {
+            finishAndRemoveTask()
+        }
     }
 
     private fun isEmptyHost(): Boolean {
@@ -91,6 +100,7 @@ class BookmarkWindowActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (browserOpened) leftForBrowser = true
         returnJob?.cancel()
         super.onPause()
     }
@@ -104,7 +114,10 @@ class BookmarkWindowActivity : ComponentActivity() {
     private fun route(incoming: Intent, launchBrowser: Boolean = true) {
         returnJob?.cancel()
         routingJob?.cancel()
-        if (launchBrowser) browserOpened = false
+        if (launchBrowser) {
+            browserOpened = false
+            leftForBrowser = false
+        }
         routingJob = lifecycleScope.launch {
             try {
                 val id = incoming.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID)

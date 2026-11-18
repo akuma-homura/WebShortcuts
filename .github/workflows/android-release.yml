@@ -1,0 +1,107 @@
+name: Android Release
+
+on:
+  workflow_run:
+    workflows: [Android CI]
+    types: [completed]
+  workflow_call:
+    inputs:
+      publish_tag:
+        type: string
+        required: true
+      build_run_id:
+        type: string
+        required: true
+      inspect_run_id:
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish-release:
+    name: Publish verified APKs to release
+    if: >-
+      inputs.publish_tag != '' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    concurrency:
+      group: android-publish-${{ inputs.publish_tag || github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.publish_tag || github.event.workflow_run.head_branch }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id || github.event.workflow_run.id }}
+      AUTOMATIC_RELEASE: ${{ github.event_name == 'workflow_run' }}
+      INSPECT_RUN_ID: ${{ inputs.inspect_run_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify that the release commit is on the default branch
+        if: github.event_name == 'workflow_run'
+        env:
+          BUILD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          status=$(gh api "repos/$GH_REPO/compare/$BUILD_SHA...$GITHUB_SHA" --jq '.status')
+          case "$status" in
+            identical|ahead) ;;
+            *) echo 'The tagged commit is outside the default branch.' >&2; exit 1 ;;
+          esac
+      - name: Verify release publication guards
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Verify completed build and exact tag commit
+        run: python3 .github/scripts/publish-release.py validate
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BUILD_RUN_ID }}
+          pattern: WebShortcuts-*
+          path: downloaded-apks
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BUILD_RUN_ID }}
+          name: verification-reports
+          path: downloaded-reports/jvm
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ env.BUILD_RUN_ID }}
+          name: device-test-reports
+          path: downloaded-reports/device
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Package APKs, checksums and provenance
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: python3 .github/scripts/publish-release.py package
+      - name: Upload, download-verify and publish release
+        run: python3 .github/scripts/publish-release.py publish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-publication
+          path: |
+            release-validation.json
+            RELEASE-NOTES.md
+            release-assets/
+          if-no-files-found: ignore
+          retention-days: 30

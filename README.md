@@ -56,9 +56,11 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 
 ## 将 APK 发布到版本标签
 
-Android CI 默认运行单元测试、Lint 和 APK 构建。要运行设备测试，请在 Actions 手动运行时勾选 `run_device_tests`。填写 `publish_tag` 和 `build_run_id` 会发布指定运行的产物。
+Android CI 默认运行单元测试、Lint 和 APK 构建。要在分支上运行设备测试，请在 Actions 手动运行时勾选 `run_device_tests`。
 
-先对目标 tag 或同一提交的分支手动运行 Android CI，勾选 `run_device_tests`。等待构建、Lint 和 Android 35 设备测试成功，再用对应 tag 和运行 ID 执行发布。任务会核对同仓库、精确提交 SHA、APK 版本、内嵌源码版本及测试报告；生成带来源运行 ID 的 APK、SHA-256 和构建信息，上传后重新下载校验，最后发布对应 Release。不会移动标签或覆盖同名附件。
+将与应用版本一致的 `vX.Y.Z` 标签推送到 GitHub 后，Android CI 自动构建并运行 Android 35 设备测试。Android Release 检查提交已进入主分支，验证正式签名 APK 后发布。失败的构建和缺少签名的构建不会自动发布。
+
+手动发布仍可在 Android CI 中填写 `publish_tag` 和 `build_run_id`，使用目标标签同一提交的成功构建和设备测试产物。发布任务核对源码提交、APK 版本和测试报告，生成 SHA-256 和构建信息，并重新下载校验附件。
 
 排查设备测试失败时，可单独填写 `inspect_run_id` 读取该次运行的完整 JUnit 失败信息，不构建或发布应用。
 

@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.homura251.webshortcuts"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "1.5.1"
+        versionCode = 22
+        versionName = "1.5.2"
         testInstrumentationRunner = "io.github.homura251.webshortcuts.shortcuts.WindowTestRunner"
     }
     buildTypes {

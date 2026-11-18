@@ -3,6 +3,7 @@ name: Android CI
 on:
   push:
     branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -96,7 +97,9 @@ jobs:
           retention-days: 30
 
   device-tests:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_device_tests && inputs.publish_tag == '' && inputs.inspect_run_id == ''
+    if: >-
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_device_tests && inputs.publish_tag == '' && inputs.inspect_run_id == '')
     name: Android 35 device tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -163,68 +166,15 @@ jobs:
   publish-release:
     name: Publish verified APKs to release
     if: github.event_name == 'workflow_dispatch' && inputs.publish_tag != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
     permissions:
       contents: write
       actions: read
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: ${{ inputs.publish_tag }}
-      BUILD_RUN_ID: ${{ inputs.build_run_id }}
-      INSPECT_RUN_ID: ${{ inputs.inspect_run_id }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Verify release publication guards
-        run: python3 -m unittest discover -s .github/scripts/tests -v
-      - name: Verify completed build and exact tag commit
-        run: python3 .github/scripts/publish-release.py validate
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.build_run_id }}
-          pattern: WebShortcuts-*
-          path: downloaded-apks
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.build_run_id }}
-          name: verification-reports
-          path: downloaded-reports/jvm
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.build_run_id }}
-          name: device-test-reports
-          path: downloaded-reports/device
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: build-tools;36.0.0
-          log-accepted-android-sdk-licenses: false
-      - name: Package APKs, checksums and provenance
-        env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: python3 .github/scripts/publish-release.py package
-      - name: Upload, download-verify and publish release
-        run: python3 .github/scripts/publish-release.py publish
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: release-publication
-          path: |
-            release-validation.json
-            RELEASE-NOTES.md
-            release-assets/
-          if-no-files-found: ignore
-          retention-days: 30
+    uses: ./.github/workflows/android-release.yml
+    with:
+      publish_tag: ${{ inputs.publish_tag }}
+      build_run_id: ${{ inputs.build_run_id }}
+      inspect_run_id: ${{ inputs.inspect_run_id }}
+    secrets: inherit
 
   inspect-device-tests:
     name: Inspect device test reports
