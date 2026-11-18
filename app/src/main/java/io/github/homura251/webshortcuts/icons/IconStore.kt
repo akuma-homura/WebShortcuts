@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.util.AtomicFile
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.IconSourceMode
+import io.github.homura251.webshortcuts.data.BookmarkCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,23 +23,23 @@ class IconStore(context: Context) {
     private val mutex = Mutex()
 
     suspend fun save(id: String, version: Int, mode: IconSourceMode, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        require(id.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "Invalid bookmark id." }
+        BookmarkCodec.validateId(id)
         require(version >= 1)
         require(mode != IconSourceMode.GENERATED) { "Generated icons do not require files." }
         require(bitmap.width == IconPolicy.OUTPUT_SIZE && bitmap.height == IconPolicy.OUTPUT_SIZE)
         mutex.withLock {
             val kind = if (mode == IconSourceMode.CUSTOM) "custom" else "auto"
-            val relative = "icons/$kind/${id}_v$version.png"
+            val relative = "icons/$kind/${UUID.randomUUID()}_v$version.png"
             write(relative, bitmap)
         }
     }
 
     /** Save an editable original separately from the already normalized launcher image. */
     suspend fun saveOriginal(id: String, version: Int, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        require(id.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "Invalid bookmark id." }
+        BookmarkCodec.validateId(id)
         require(version >= 1)
         require(bitmap.width in 1..IconProcessor.MAX_EDITABLE_SIZE && bitmap.height in 1..IconProcessor.MAX_EDITABLE_SIZE)
-        mutex.withLock { write("icons/original/${id}_v$version.png", bitmap) }
+        mutex.withLock { write("icons/original/${UUID.randomUUID()}_v$version.png", bitmap) }
     }
 
     suspend fun read(path: String?): Bitmap? = readImage(path, original = false)

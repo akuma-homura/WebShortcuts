@@ -86,7 +86,7 @@ class LocalPageWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         if (policy.isDocument(request.url)) return false
         if (request.isForMainFrame && request.hasGesture() && policy.isExternalLink(request.url)) {
-            onExternalLink(request.url.toString().take(8192))
+            onExternalLink(request.url.toString())
         }
         return true
     }
@@ -95,7 +95,7 @@ class LocalPageWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
         val uri = Uri.parse(url)
         if (policy.isDocument(uri)) return false
-        if (policy.isExternalLink(uri)) onExternalLink(url.take(8192))
+        if (policy.isExternalLink(uri)) onExternalLink(url)
         return true
     }
 

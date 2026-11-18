@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.nextImageVersion
 import io.github.homura251.webshortcuts.data.BookmarkSourceType
 import io.github.homura251.webshortcuts.shortcuts.BrowserCatalog
 import io.github.homura251.webshortcuts.ui.SourceFilter
@@ -813,7 +814,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
                         synced = true
                         return@withLock
                     }
-                    val version = (previous?.imageVersion ?: 0) + 1
+                    val version = nextImageVersion(previous?.imageVersion ?: 0)
                     val sameUrl = previous?.url == url
                     var autoPath = previous?.autoImagePath.takeIf { sameUrl }
                     var customPath = previous?.customImagePath
@@ -986,7 +987,7 @@ class MainViewModel(application: Application, private val savedState: SavedState
                 val latest = repository.find(snapshot.id) ?: return@withLock RefreshResult.SKIPPED
                 // An editor may have saved a custom icon, different URL, or newer auto image during IO.
                 if (latest.selectedIconSource != IconSourceMode.AUTO || latest.url != snapshot.url || latest.imageVersion != snapshot.imageVersion) return@withLock RefreshResult.SKIPPED
-                val version = latest.imageVersion + 1
+                val version = nextImageVersion(latest.imageVersion)
                 val path = container.iconStore.save(latest.id, version, IconSourceMode.AUTO, result.bitmap)
                 val now = System.currentTimeMillis()
                 val updated = latest.copy(autoImagePath = path, sourceUrl = result.sourceUrl, iconDescription = result.description, imageVersion = version, lastFetchedAt = now, updatedAt = now)

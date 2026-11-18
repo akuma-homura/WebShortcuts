@@ -15,7 +15,6 @@ public class WindowBrowserFixture extends Activity {
         super.onCreate(state);
         TextView text = new TextView(this);
         text.setText(getIntent().getDataString());
-        text.setId(12345);
         text.setContentDescription("Minimize fixture");
         text.setOnClickListener(view -> enterPictureInPictureMode(new PictureInPictureParams.Builder().build()));
         setContentView(text);

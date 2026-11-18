@@ -50,6 +50,19 @@ class TransferManagerTest {
         container = AppContainer(context)
     }
 
+    @Test fun maximumRevisionBackupRestoresWithFreshAssets() = runBlocking {
+        val original = seed().copy(imageVersion = Int.MAX_VALUE)
+        container.repository.save(original)
+        val file = backup()
+        val token = token()
+        manager.prepareImport(Uri.fromFile(file), token) {}
+        manager.commitImport(token, ImportMode.REPLACE, false) {}
+        val restored = container.repository.find(original.id)!!
+        assertEquals(1, restored.imageVersion)
+        assertNotEquals(original.customImagePath, restored.customImagePath)
+        assertEquals(Color.BLUE, container.iconStore.read(restored.customImagePath)!!.getPixel(0, 0))
+    }
+
     @Test fun zipRoundTripPreservesBothModesOriginalCropSourceTimesAndRawPixels() = runBlocking {
         val custom = seed()
         val generated = BookmarkItem(title = "字母", url = "https://letters.test/", selectedIconSource = IconSourceMode.GENERATED)

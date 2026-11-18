@@ -18,6 +18,15 @@ import java.util.UUID
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EditorDraftStoreTest {
+    @Test fun legacyBookmarkIdDoesNotBecomeADraftPath() = runBlocking {
+        val image = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        try {
+            val name = store.write("旧收藏/非UUID", image)
+            assertFalse(name.contains('/'))
+            assertNotNull(store.read(name))
+        } finally { image.recycle() }
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val store = EditorDraftStore(context)
 

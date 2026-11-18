@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import io.github.homura251.webshortcuts.data.BookmarkCodec
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.data.nextImageVersion
 import io.github.homura251.webshortcuts.data.BookmarkRepository
 import io.github.homura251.webshortcuts.data.LibrarySnapshot
 import io.github.homura251.webshortcuts.icons.IconPolicy
@@ -124,9 +125,7 @@ class TransferManager(
                     prepared.parsed.items.size - incoming.size - merged.updatedBookmarks else 0
                 val oldVersions = before.associate { it.id to it.imageVersion }
                 val versioned = incoming.map { item ->
-                    val next = maxOf(item.imageVersion, oldVersions[item.id] ?: 0).toLong() + 1
-                    require(next <= Int.MAX_VALUE) { "备份图标版本过大" }
-                    item.copy(imageVersion = next.toInt())
+                    item.copy(imageVersion = nextImageVersion(maxOf(item.imageVersion, oldVersions[item.id] ?: 0)))
                 }
                 val tentative = LibrarySnapshot(versioned + retained, tags)
                 require(BookmarkCodec.encode(tentative).toByteArray(Charsets.UTF_8).size <= BookmarkCodec.MAX_JSON_BYTES) { "导入后收藏数据超过 4 MiB" }

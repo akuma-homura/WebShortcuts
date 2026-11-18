@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
+import android.webkit.WebResourceRequest
 import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.data.BookmarkSourceType
 import java.io.File
@@ -17,6 +18,28 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class LocalPageAccessPolicyTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    @Suppress("DEPRECATION")
+    @Test fun longExternalLinksKeepTheirCompleteDestination() {
+        val url = "https://example.com/?value=" + "a".repeat(8200) + "&destination=original"
+        val destinations = mutableListOf<String>()
+        val policy = LocalPageAccessPolicy(File(context.cacheDir, "link.html"), BookmarkSourceType.HTML)
+        val client = LocalPageWebViewClient(policy, onExternalLink = destinations::add)
+        val request = object : WebResourceRequest {
+            override fun getUrl() = Uri.parse(url)
+            override fun isForMainFrame() = true
+            override fun hasGesture() = true
+            override fun isRedirect() = false
+            override fun getMethod() = "GET"
+            override fun getRequestHeaders() = emptyMap<String, String>()
+        }
+        val view = OfflineWebView(context)
+        try {
+            assertTrue(client.shouldOverrideUrlLoading(view, request))
+            assertTrue(client.shouldOverrideUrlLoading(view, url))
+            assertEquals(listOf(url, url), destinations)
+        } finally { view.release() }
+    }
 
     @Test fun htmlServesOnePrivateDocumentAndBlocksEveryOtherOriginOrPath() {
         val file = File(context.cacheDir, "safe.html").apply { writeText("<html><body>Only this document</body></html>") }

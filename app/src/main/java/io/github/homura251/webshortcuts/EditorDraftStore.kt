@@ -11,16 +11,17 @@ import java.io.IOException
 import java.util.UUID
 import io.github.homura251.webshortcuts.icons.IconPolicy
 import io.github.homura251.webshortcuts.icons.IconProcessor
+import io.github.homura251.webshortcuts.data.BookmarkCodec
 
 /** Temporary, private originals/previews; no image becomes a saved bookmark before Save. */
 internal class EditorDraftStore(context: Context) {
     private val directory = File(context.cacheDir, "editor-drafts")
 
     suspend fun write(id: String, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        UUID.fromString(id)
+        BookmarkCodec.validateId(id)
         require(bitmap.width in 1..IconProcessor.MAX_EDITABLE_SIZE && bitmap.height in 1..IconProcessor.MAX_EDITABLE_SIZE)
         if (!directory.exists() && !directory.mkdirs()) throw IOException("无法保存图片草稿")
-        val name = "${id}_${UUID.randomUUID()}.png"
+        val name = "${UUID.randomUUID()}.png"
         val target = AtomicFile(File(directory, name))
         val output = target.startWrite()
         try {
