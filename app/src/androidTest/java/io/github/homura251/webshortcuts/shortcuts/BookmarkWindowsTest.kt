@@ -1,7 +1,9 @@
 package io.github.homura251.webshortcuts.shortcuts
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.ActivityManager
+import android.graphics.Rect
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -10,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsService
 import androidx.core.content.ContextCompat
@@ -48,6 +51,9 @@ class BookmarkWindowsTest {
     @Before fun prepare(): Unit = runBlocking {
         context.filesDir.listFiles()?.forEach { it.deleteRecursively() }
         application.container.repository.load()
+        instrumentation.uiAutomation.serviceInfo = instrumentation.uiAutomation.serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
         setFixtureEnabled(true)
         ContextCompat.registerReceiver(context, receiver, IntentFilter(WindowBrowserFixture.ACTION_RESUMED),
             ContextCompat.RECEIVER_EXPORTED)
@@ -115,6 +121,82 @@ class BookmarkWindowsTest {
         }
         assertTrue(manager.appTasks.any { it.taskInfo?.taskId == secondTask })
         assertEquals(main.taskId, collection().taskId)
+    }
+
+    @Test
+    fun minimizedFixtureSurvivesAndRestoresIntoItsBookmarkTask() = runBlocking {
+        val bookmark = BookmarkItem(title = "Floating fixture", url = "https://example.invalid/preserved",
+            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val main = collection()
+        val task = open(main, bookmark)
+        await("The fixture must be ready to minimize") {
+            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
+                ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        }
+        assertMinimizedAndRestore(task, main.taskId, recreateHost = true)
+        assertEquals(task, browserTask(bookmark))
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        await("A finished browser should remove its bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
+    }
+
+    @Test
+    fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
+        val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
+            browserPackage = "com.android.chrome", selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val main = collection()
+        instrumentation.runOnMainSync { assertTrue(BookmarkWindows.open(main, bookmark).opened) }
+        var task = -1
+        await("Chrome must open above a bookmark host") {
+            task = manager.appTasks.firstOrNull { it.taskInfo?.topActivity?.packageName == "com.android.chrome" }
+                ?.taskInfo?.taskId ?: -1
+            task >= 0
+        }
+        clickView("com.android.chrome:id/custom_tabs_minimize_button")
+        assertMinimizedAndRestore(task, main.taskId)
+        await("Chrome must restore to its original bookmark task") {
+            manager.appTasks.any { it.taskInfo?.taskId == task && it.taskInfo?.topActivity?.packageName == "com.android.chrome" }
+        }
+        clickView("com.android.chrome:id/close_button")
+        await("Closing Chrome must remove its empty bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
+    }
+
+    private fun assertMinimizedAndRestore(task: Int, mainTask: Int, recreateHost: Boolean = false) {
+        await("The browser must enter real Android picture-in-picture") {
+            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        }
+        assertTrue("Minimization must preserve the bookmark root", manager.appTasks.any { it.taskInfo?.taskId == task })
+        assertEquals(mainTask, collection().taskId)
+        assertTrue("Opening the app must preserve the floating browser", instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode })
+        if (recreateHost) {
+            var host: BookmarkWindowActivity? = null
+            await("The host must stop behind the collection before recreation") {
+                instrumentation.runOnMainSync {
+                    host = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.STOPPED)
+                        .filterIsInstance<BookmarkWindowActivity>().firstOrNull { it.taskId == task }
+                }
+                host != null
+            }
+            instrumentation.runOnMainSync { host!!.recreate() }
+        }
+        val bounds = Rect()
+        instrumentation.uiAutomation.windows.first { it.isInPictureInPictureMode }.getBoundsInScreen(bounds)
+        shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
+        clickView("com.android.systemui:id/expand_button")
+        await("The browser must leave picture-in-picture after expanding") {
+            instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
+        }
+    }
+
+    private fun clickView(id: String) {
+        await("Expected browser/system control: $id") {
+            instrumentation.uiAutomation.windows.asSequence().mapNotNull { it.root }
+                .flatMap { it.findAccessibilityNodeInfosByViewId(id).asSequence() }
+                .any { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+        }
     }
 
     private fun collection(): MainActivity {

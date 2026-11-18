@@ -114,6 +114,26 @@ class BrowserLauncherTest {
         assertEquals(first.id, original.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID))
     }
 
+    @Test fun bookmarkHostCanOwnTheBrowserResultWithoutChangingItsProviderOrTask() {
+        installBrowser("org.mozilla.firefox", "Firefox", true)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            var launched: Intent? = null
+            val result = BrowserLauncher.openInBookmarkTask(activity,
+                BookmarkItem(title = "Floating", url = "https://example.com/preserved", browserPackage = "org.mozilla.firefox")) { intent, _ ->
+                launched = intent
+            }
+            assertTrue(result.opened)
+            assertTrue(result.customTab)
+            assertEquals("org.mozilla.firefox", launched!!.`package`)
+            assertEquals("https://example.com/preserved", launched!!.dataString)
+            assertTrue(launched!!.hasExtra(CustomTabsIntent.EXTRA_SESSION))
+            assertEquals(0, launched!!.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+            assertNull(shadowOf(activity).nextStartedActivity)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun plainBrowserFallbackDoesNotNeedAnEmptyBookmarkHost() {
         installBrowser("org.example.browser", "Other Browser", false)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

@@ -6,23 +6,32 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityOptionsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import java.util.UUID
 
 /** Keeps the browser's Custom Tab above a bookmark-specific document root, never above MainActivity. */
 class BookmarkWindowActivity : ComponentActivity() {
     private var routingJob: Job? = null
     private var browserOpened = false
     private var leftForBrowser = false
+    private var resultKey: String? = null
+    private var browserResult: ActivityResultLauncher<Intent>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
         leftForBrowser = browserOpened
+        if (browserOpened) registerBrowserResult(savedInstanceState?.getString(STATE_RESULT_KEY) ?: UUID.randomUUID().toString())
         if (!browserOpened) route(intent)
     }
 
@@ -36,8 +45,15 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Returning from the browser must not expose an empty translucent window.
-        if (browserOpened && leftForBrowser) finishAndRemoveTask()
+        // PiP can reveal this root while the browser is still alive. Keep the task for restoration,
+        // but do not leave a transparent activity intercepting the underlying application's input.
+        val key = resultKey
+        if (browserOpened && leftForBrowser) lifecycleScope.launch {
+            yield()
+            if (key == resultKey && browserOpened && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                moveTaskToBack(true)
+            }
+        }
     }
 
     override fun onPause() {
@@ -52,11 +68,15 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_BROWSER_OPENED, browserOpened)
+        outState.putString(STATE_RESULT_KEY, resultKey)
         super.onSaveInstanceState(outState)
     }
 
     private fun route(incoming: Intent) {
         routingJob?.cancel()
+        browserResult?.unregister()
+        browserResult = null
+        resultKey = null
         browserOpened = false
         leftForBrowser = false
         routingJob = lifecycleScope.launch {
@@ -74,7 +94,12 @@ class BookmarkWindowActivity : ComponentActivity() {
                 }
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(bookmark.title))
-                val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
+                registerBrowserResult(UUID.randomUUID().toString())
+                val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark) { tab, options ->
+                    browserResult!!.launch(tab, options?.let { bundle ->
+                        object : ActivityOptionsCompat() { override fun toBundle(): Bundle = bundle }
+                    })
+                }
                 when {
                     !result.opened -> fail(result.message ?: "暂时无法打开收藏")
                     result.customTab -> browserOpened = true
@@ -89,6 +114,23 @@ class BookmarkWindowActivity : ComponentActivity() {
         }
     }
 
+    private fun registerBrowserResult(key: String) {
+        resultKey = key
+        browserResult = activityResultRegistry.register(key, ActivityResultContracts.StartActivityForResult()) {
+            // intoExisting may finish the previous tab while delivering a new bookmark intent.
+            // Let that intent invalidate the old key before deciding whether this task is empty.
+            lifecycleScope.launch {
+                yield()
+                if (resultKey == key) finishAndRemoveTask()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        browserResult?.unregister()
+        super.onDestroy()
+    }
+
     private fun fail(message: String) {
         Log.w("BookmarkWindow", message)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -97,5 +139,6 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     private companion object {
         const val STATE_BROWSER_OPENED = "browserOpened"
+        const val STATE_RESULT_KEY = "browserResultKey"
     }
 }

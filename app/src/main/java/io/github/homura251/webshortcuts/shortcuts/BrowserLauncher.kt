@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
@@ -31,10 +32,12 @@ object BrowserLauncher {
         return launchWeb(context, url, browserPackage, separateTask = true)
     }
 
-    internal fun openInBookmarkTask(context: Context, bookmark: BookmarkItem): LaunchResult =
-        launchWeb(context, bookmark.url, bookmark.browserPackage, separateTask = false)
+    internal fun openInBookmarkTask(context: Context, bookmark: BookmarkItem,
+                                   launchTab: ((Intent, Bundle?) -> Unit)? = null): LaunchResult =
+        launchWeb(context, bookmark.url, bookmark.browserPackage, separateTask = false, launchTab = launchTab)
 
-    private fun launchWeb(context: Context, url: String, browserPackage: String?, separateTask: Boolean): LaunchResult {
+    private fun launchWeb(context: Context, url: String, browserPackage: String?, separateTask: Boolean,
+                          launchTab: ((Intent, Bundle?) -> Unit)? = null): LaunchResult {
         val uri = try { Uri.parse(UrlNormalizer.normalize(url)) } catch (_: IllegalArgumentException) {
             return LaunchResult(false, "网址无效，请编辑此快捷方式")
         }
@@ -55,7 +58,8 @@ object BrowserLauncher {
                 tab.intent.setPackage(browser.packageName)
                 if (separateTask || context !is Activity) tab.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 try {
-                    tab.launchUrl(context, uri)
+                    if (launchTab == null) tab.launchUrl(context, uri)
+                    else launchTab(tab.intent.setData(uri), tab.startAnimationBundle)
                     return LaunchResult(true, customTab = true)
                 } catch (_: ActivityNotFoundException) {
                     // A provider can disappear between discovery and launch.

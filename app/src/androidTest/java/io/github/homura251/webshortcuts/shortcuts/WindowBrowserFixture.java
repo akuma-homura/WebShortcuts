@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts.shortcuts;
 
 import android.app.Activity;
+import android.app.PictureInPictureParams;
 import android.content.Intent;
 import android.os.Bundle;
 import android.widget.TextView;
@@ -13,6 +14,9 @@ public class WindowBrowserFixture extends Activity {
         super.onCreate(state);
         TextView text = new TextView(this);
         text.setText(getIntent().getDataString());
+        text.setId(12345);
+        text.setContentDescription("Minimize fixture");
+        text.setOnClickListener(view -> enterPictureInPictureMode(new PictureInPictureParams.Builder().build()));
         setContentView(text);
     }
 

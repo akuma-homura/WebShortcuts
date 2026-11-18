@@ -2,6 +2,8 @@
     <application>
         <activity
             android:name="io.github.homura251.webshortcuts.shortcuts.WindowBrowserFixture"
+            android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
