@@ -118,6 +118,12 @@ jobs:
           cache-read-only: true
       - name: Build the R8 preview
         run: ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:assemblePreview
+      - name: Sign the preview APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.PREVIEW_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.PREVIEW_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: webshortcuts-preview
+        run: python3 .github/scripts/publish-release.py sign-preview
       - uses: actions/upload-artifact@v4
         with:
           name: WebShortcuts-preview

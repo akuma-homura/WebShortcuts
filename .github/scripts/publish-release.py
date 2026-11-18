@@ -129,6 +129,12 @@ def sign():
     sign_apk_file(unsigned, signed)
 
 
+def sign_preview():
+    directory = Path('app/build/outputs/apk/preview')
+    if not sign_apk_file(directory / 'app-preview-unsigned.apk', directory / 'app-preview.apk'):
+        raise ValueError('Configure the dedicated Preview signing keystore before building in CI')
+
+
 def inputs():
     if os.environ.get('INSPECT_RUN_ID'):
         raise ValueError('Choose publication or report inspection, not both')
@@ -405,5 +411,6 @@ def publish():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('phase', choices=['sign', 'validate', 'package', 'publish'])
-    {'sign': sign, 'validate': validate, 'package': package, 'publish': publish}[parser.parse_args().phase]()
+    phases = {'sign': sign, 'sign-preview': sign_preview, 'validate': validate, 'package': package, 'publish': publish}
+    parser.add_argument('phase', choices=phases)
+    phases[parser.parse_args().phase]()

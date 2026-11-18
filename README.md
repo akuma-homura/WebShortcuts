@@ -47,7 +47,7 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 打开仓库的 **Actions → Android CI → 成功的运行记录 → Artifacts**：
 
 - `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
-- `WebShortcuts-preview`：手动运行时留空所有输入会生成 R8 压缩的调试 APK，可和正式版共存。桌面显示为 WebShortcuts Preview，收藏与正式版独立。
+- `WebShortcuts-preview`：手动运行时留空所有输入会生成 R8 压缩的调试 APK，可和正式版共存。桌面显示为 WebShortcuts Preview，收藏与正式版独立。CI 使用固定的 Preview 签名，仓库需配置 `PREVIEW_KEYSTORE_BASE64` 和 `PREVIEW_KEYSTORE_PASSWORD`，密钥别名为 `webshortcuts-preview`。
 - `WebShortcuts-release`：启用 R8 并由固定正式密钥签名的发布包，供日常安装和后续覆盖升级；仅在仓库配置签名密钥时生成。
 - `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，供自行签名。
 - `verification-reports`：单元测试和 Lint 结果。

@@ -34,6 +34,11 @@ class PublicationGuardsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'stable tag and a signed release APK'):
                 publisher.is_prerelease_release(tag, signed, automatic=True)
 
+    def test_preview_requires_its_signing_key(self):
+        with patch.object(publisher, 'sign_apk_file', return_value=None):
+            with self.assertRaisesRegex(ValueError, 'dedicated Preview signing keystore'):
+                publisher.sign_preview()
+
     def test_another_commit_cannot_be_released_under_this_tag(self):
         with self.assertRaisesRegex(ValueError, 'does not match'):
             publisher.validate_run(self.run, self.repo, 'b' * 40)

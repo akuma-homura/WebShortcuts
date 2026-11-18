@@ -28,7 +28,6 @@ android {
             versionNameSuffix = "-preview"
             manifestPlaceholders["launcherLabel"] = "WebShortcuts Preview"
             isDebuggable = true
-            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
