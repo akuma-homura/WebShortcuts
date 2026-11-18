@@ -196,7 +196,9 @@ class BookmarkWindowsTest {
         }
         await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
         assertEquals(mainTask, collection().taskId)
-        assertTrue("Opening the app must preserve the floating browser", instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode })
+        await("Opening the app must preserve the floating browser after its window transition") {
+            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        }
         // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
         // full-screen action instead of coordinates, which can hit the collection underneath.
         await("Android must accept the floating window's full-screen action") {
@@ -311,7 +313,17 @@ class BookmarkWindowsTest {
             if (condition()) return
             Thread.sleep(50)
         }
-        fail(message)
+        val file = File(context.getExternalFilesDir(null), "screenshots/pip-timeout-${System.currentTimeMillis()}.png")
+        file.parentFile!!.mkdirs()
+        instrumentation.uiAutomation.takeScreenshot()?.let { bitmap ->
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+        val windows = instrumentation.uiAutomation.windows.joinToString("\n") {
+            "window=${it.id}, pip=${it.isInPictureInPictureMode}, package=${it.root?.packageName}"
+        }
+        val tasks = manager.appTasks.joinToString("\n") { runCatching { it.taskInfo.toString() }.getOrDefault("task unavailable") }
+        fail("$message\n$windows\n$tasks")
     }
 
     private fun setFixtureEnabled(enabled: Boolean) {
