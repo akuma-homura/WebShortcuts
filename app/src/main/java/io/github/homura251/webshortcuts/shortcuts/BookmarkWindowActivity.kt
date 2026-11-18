@@ -8,6 +8,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -58,7 +59,9 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     private fun hideHost() {
         setHostExcluded(true)
-        moveTaskToBack(true)
+        // Moving this task back animates the collection in again. If it is already visible
+        // through our transparent window, reveal that same task without a second transition.
+        if (!MainActivity.returnToVisibleCollection(this)) moveTaskToBack(true)
     }
 
     private fun closeHost() {
@@ -101,14 +104,17 @@ class BookmarkWindowActivity : ComponentActivity() {
                     fail("快捷方式无效，请在 WebShortcuts 中重新添加")
                     return@launch
                 }
-                val bookmark = (application as WebShortcutsApplication).container.repository.find(id)
+                val container = (application as WebShortcutsApplication).container
+                val bookmark = container.repository.find(id)
                 ensureActive()
                 if (bookmark == null || bookmark.isLocal) {
                     fail("此网页收藏已变更，请在 WebShortcuts 中重新打开")
                     return@launch
                 }
+                val icon = container.iconResolver.resolve(bookmark)
+                ensureActive()
                 @Suppress("DEPRECATION")
-                setTaskDescription(ActivityManager.TaskDescription(bookmark.title))
+                setTaskDescription(ActivityManager.TaskDescription(bookmark.title, icon))
                 val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
                 when {
                     !result.opened -> fail(result.message ?: "暂时无法打开收藏")

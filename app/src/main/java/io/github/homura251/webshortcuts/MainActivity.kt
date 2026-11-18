@@ -1,5 +1,7 @@
 package io.github.homura251.webshortcuts
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -31,6 +33,7 @@ import io.github.homura251.webshortcuts.transfer.TransferViewModel
 import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -47,6 +50,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        current = WeakReference(this)
         enableEdgeToEdge()
         val container = (application as WebShortcutsApplication).container
         setContent {
@@ -138,6 +142,31 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptShare(intent)
+    }
+
+    override fun onDestroy() {
+        if (current.get() === this) current.clear()
+        super.onDestroy()
+    }
+
+    companion object {
+        private var current = WeakReference<MainActivity>(null)
+
+        /** Only reveal an already visible collection; never pull it above another app. */
+        internal fun returnToVisibleCollection(from: Activity): Boolean {
+            val activity = current.get() ?: return false
+            if (activity.isFinishing || activity.isDestroyed || activity.taskId == from.taskId ||
+                !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return false
+            return try {
+                from.startActivity(Intent(from, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+                true
+            } catch (_: ActivityNotFoundException) {
+                false
+            } catch (_: SecurityException) {
+                false
+            }
+        }
     }
 
     override fun onResume() {
