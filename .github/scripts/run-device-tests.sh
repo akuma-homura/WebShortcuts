@@ -52,5 +52,5 @@ adb shell am force-stop com.android.chrome
 fi
 
 # UTP otherwise uninstalls the app (and its external files) before the EXIT trap can pull them.
-./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
+./gradlew --daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
     -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true "${test_args[@]}" :app:connectedDebugAndroidTest
