@@ -145,7 +145,7 @@ jobs:
         with:
           name: ${{ matrix.api == 35 && 'device-screenshots' || 'device-screenshots-api33' }}
           path: device-screenshots/
-          if-no-files-found: error
+          if-no-files-found: ${{ matrix.api == 35 && 'error' || 'ignore' }}
           retention-days: 30
       - name: Upload device reports
         if: always()
