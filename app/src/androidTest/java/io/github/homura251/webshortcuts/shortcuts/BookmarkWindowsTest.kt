@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsService
 import androidx.core.content.ContextCompat
@@ -86,7 +87,7 @@ class BookmarkWindowsTest {
                 .launchUrl(main, Uri.parse(first.url))
         }
         assertEquals(main.taskId, browserTask(first))
-        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        home()
         assertEquals(main.taskId, collection().taskId)
 
         val firstTask = open(main, first)
@@ -94,7 +95,7 @@ class BookmarkWindowsTest {
         assertEquals(BookmarkWindowActivity::class.java.name,
             manager.appTasks.first { it.taskInfo?.taskId == firstTask }.taskInfo!!.baseIntent.component?.className)
 
-        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        home()
         val restoredMain = collection()
         assertEquals(main.taskId, restoredMain.taskId)
         val secondTask = open(restoredMain, second)
@@ -117,8 +118,12 @@ class BookmarkWindowsTest {
     }
 
     private fun collection(): MainActivity {
-        context.startActivity(context.packageManager.getLaunchIntentForPackage(context.packageName)!!
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+        // Model an external launcher, not a background app trying to start itself. Wait for the
+        // system command so a pending Home transition cannot cover the activity afterwards.
+        val component = ComponentName(context, MainActivity::class.java).flattenToString()
+        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
+            "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $component"
+        )).use { it.readBytes() }
         var activity: MainActivity? = null
         await("The application launcher should resume the collection, not a previous web page") {
             instrumentation.runOnMainSync {
@@ -128,6 +133,16 @@ class BookmarkWindowsTest {
             activity != null
         }
         return activity!!
+    }
+
+    private fun home() {
+        val launcher = context.packageManager.resolveActivity(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY
+        )!!.activityInfo.packageName
+        assertTrue(instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME))
+        await("Home must finish becoming active before relaunching the application") {
+            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == launcher
+        }
     }
 
     private fun open(activity: MainActivity, bookmark: BookmarkItem): Int {
