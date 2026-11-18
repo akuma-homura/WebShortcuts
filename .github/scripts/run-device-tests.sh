@@ -13,19 +13,6 @@ trap collect_screenshots EXIT
 # Exercise the real Chrome CCT controls without the emulator's first-run onboarding.
 adb root
 adb wait-for-device
-test_args=()
-if [[ "${DEVICE_API_LEVEL:-35}" == "33" ]]; then
-    # The API 33 image bundles Chrome before native CCT minimization existed. Exercise Android
-    # 13 task/PiP behavior with our browser fixture; API 35 still runs the real Chrome test.
-    fixture_class='io.github.homura251.webshortcuts.shortcuts.BookmarkWindowsTest'
-    test_filter="$fixture_class#bookmarkCardsAreSeparateReuseTheirIdAndNeverReplaceTheAppLauncher"
-    test_filter+=",$fixture_class#minimizedFixturePreservesItsBrowserAcrossHostRecreation"
-    test_filter+=",$fixture_class#missingAutoIconUsesGeneratedTaskArtwork"
-    test_filter+=",$fixture_class#shortcutMinimizationDoesNotCreateACollection"
-    test_filter+=",$fixture_class#shortcutMinimizationDoesNotBringBackAStoppedCollection"
-    test_filter+=",$fixture_class#fullBrowserFallbackRemainsInFrontWhenReusingAnOldTabHost"
-    test_args+=("-Pandroid.testInstrumentationRunnerArguments.class=$test_filter")
-else
 adb shell am set-debug-app --persistent com.android.chrome
 # The bundled M124 predates complete field-trial rollout; enable the native implementation for CI.
 adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check --enable-features=CCTMinimized --disable-low-end-device-mode" > /data/local/tmp/chrome-command-line'
@@ -49,8 +36,6 @@ if [[ "$chrome_ready" != true ]]; then
 fi
 adb shell am force-stop com.android.chrome
 
-fi
-
 # UTP otherwise uninstalls the app (and its external files) before the EXIT trap can pull them.
 ./gradlew --daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
-    -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true "${test_args[@]}" :app:connectedDebugAndroidTest
+    -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true :app:connectedDebugAndroidTest
