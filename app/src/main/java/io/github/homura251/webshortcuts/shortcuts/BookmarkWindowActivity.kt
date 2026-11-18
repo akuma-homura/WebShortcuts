@@ -9,7 +9,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.Lifecycle
 import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
@@ -17,21 +16,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 
 /** Keeps the browser's Custom Tab above a bookmark-specific document root, never above MainActivity. */
 class BookmarkWindowActivity : ComponentActivity() {
     private var routingJob: Job? = null
+    private var returnJob: Job? = null
     private var browserOpened = false
-    private var leftForBrowser = false
-    private var routingGeneration = 0
     private var hasHostedTab = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
         hasHostedTab = browserOpened || savedInstanceState?.getBoolean(STATE_HAS_HOSTED_TAB) == true
-        leftForBrowser = browserOpened
         // Recreating an Activity clears its task description. Refresh the artwork while leaving
         // an already hosted browser alone, including when it is floating in another task.
         route(intent, launchBrowser = !browserOpened)
@@ -45,39 +41,38 @@ class BookmarkWindowActivity : ComponentActivity() {
         route(intent)
     }
 
-    override fun onResume() {
-        super.onResume()
+    override fun onPostResume() {
+        super.onPostResume()
         // Removing a PiP parent task also removes its floating child. Keep the empty anchor
         // reusable but hide its card and move it behind the underlying app instead.
-        val generation = routingGeneration
-        if (browserOpened && leftForBrowser) lifecycleScope.launch {
-            yield()
-            if (canHideEmptyHost(generation)) hideEmptyHost(generation)
+        if (!browserOpened) return
+        returnJob?.cancel()
+        returnJob = lifecycleScope.launch {
+            val deadline = SystemClock.uptimeMillis() + 500
+            // The system can resume this Activity before publishing the detached tab's task info.
+            while (!isEmptyHost()) {
+                if (SystemClock.uptimeMillis() >= deadline) return@launch
+                delay(16)
+            }
+            hideEmptyHost(deadline)
         }
     }
 
-    private fun canHideEmptyHost(generation: Int): Boolean =
-        generation == routingGeneration && browserOpened &&
-            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && isEmptyHost()
-
-    private suspend fun hideEmptyHost(generation: Int) {
+    private suspend fun hideEmptyHost(deadline: Long) {
         setHostExcluded(true)
-        // Some systems resume the transparent anchor before starting the collection below it.
-        // Only collection-origin launches wait for that lifecycle handoff; desktop launches
-        // keep their immediate return, and a new route or resumed browser cancels this work.
-        val deadline = SystemClock.uptimeMillis() +
-            if (intent.getBooleanExtra(BookmarkWindows.EXTRA_FROM_COLLECTION, false)) 500 else 0
-        while (canHideEmptyHost(generation)) {
+        // Only a tab opened from the collection should wait for it to become visible again.
+        val fromCollection = intent.getBooleanExtra(BookmarkWindows.EXTRA_FROM_COLLECTION, false)
+        while (fromCollection && isEmptyHost()) {
             if (MainActivity.returnToVisibleCollection(this)) {
                 Log.d("BookmarkWindow", "Empty host return: collection")
                 return
             }
-            if (SystemClock.uptimeMillis() >= deadline) {
-                Log.d("BookmarkWindow", "Empty host return: moveToBack")
-                moveTaskToBack(true)
-                return
-            }
+            if (SystemClock.uptimeMillis() >= deadline) break
             delay(16)
+        }
+        if (isEmptyHost()) {
+            Log.d("BookmarkWindow", "Empty host return: moveToBack")
+            moveTaskToBack(true)
         }
     }
 
@@ -105,13 +100,8 @@ class BookmarkWindowActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        if (browserOpened) leftForBrowser = true
+        returnJob?.cancel()
         super.onPause()
-    }
-
-    override fun onStop() {
-        if (browserOpened) leftForBrowser = true
-        super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -121,12 +111,9 @@ class BookmarkWindowActivity : ComponentActivity() {
     }
 
     private fun route(incoming: Intent, launchBrowser: Boolean = true) {
-        routingGeneration++
+        returnJob?.cancel()
         routingJob?.cancel()
-        if (launchBrowser) {
-            browserOpened = false
-            leftForBrowser = false
-        }
+        if (launchBrowser) browserOpened = false
         routingJob = lifecycleScope.launch {
             try {
                 val id = incoming.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID)

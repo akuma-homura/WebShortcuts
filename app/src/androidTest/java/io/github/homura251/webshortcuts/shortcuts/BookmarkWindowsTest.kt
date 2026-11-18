@@ -260,6 +260,33 @@ class BookmarkWindowsTest {
     }
 
     @Test
+    fun chromeDirectLaunchReturnsToCollectionWithoutAHost() = runBlocking {
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val main = collection()
+        val launchIntent = main.intent
+        instrumentation.runOnMainSync {
+            val result = BrowserLauncher.openWeb(main, "https://example.com/#direct-cct", "com.android.chrome")
+            assertTrue(result.customTab)
+        }
+        val minimize = "com.android.chrome:id/custom_tabs_minimize_button"
+        await("Chrome must show the native minimize button for a direct launch") {
+            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByViewId(minimize)
+                ?.isNotEmpty() == true
+        }
+        recordMinimization("chrome-direct-minimize") {
+            clickView(minimize)
+            await("The directly opened Chrome tab must enter PiP and reveal the collection") {
+                instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode } &&
+                    isCollectionResumed(main)
+            }
+            assertSame("The collection must receive no new launch intent", launchIntent, main.intent)
+            assertFalse(manager.appTasks.any {
+                it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name
+            })
+        }
+    }
+
+    @Test
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
         val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
             browserPackage = "com.android.chrome", autoImagePath = saveIcon(IconSourceMode.AUTO, Color.CYAN))
@@ -305,12 +332,7 @@ class BookmarkWindowsTest {
         }
         await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
         await("The original collection must resume automatically, without a launcher intent") {
-            var resumed = false
-            instrumentation.runOnMainSync {
-                resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                    .any { it === main }
-            }
-            resumed
+            isCollectionResumed(main)
         }
         assertTrue("Returning to the visible collection must suppress its extra transition",
             main.intent.flags and Intent.FLAG_ACTIVITY_NO_ANIMATION != 0)
@@ -327,6 +349,14 @@ class BookmarkWindowsTest {
         await("The browser must leave picture-in-picture after expanding") {
             instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
         }
+    }
+
+    private fun isCollectionResumed(main: MainActivity): Boolean {
+        var resumed = false
+        instrumentation.runOnMainSync {
+            resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).any { it === main }
+        }
+        return resumed
     }
 
     private suspend fun saveIcon(mode: IconSourceMode, color: Int): String {
