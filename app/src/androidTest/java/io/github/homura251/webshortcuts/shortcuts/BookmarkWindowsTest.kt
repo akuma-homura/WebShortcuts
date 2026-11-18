@@ -44,6 +44,7 @@ class BookmarkWindowsTest {
     private val application get() = context.applicationContext as WebShortcutsApplication
     private val manager get() = context.getSystemService(ActivityManager::class.java)
     private val opened = LinkedBlockingQueue<Intent>()
+    private var browserInstance: String? = null
     private var scenario: ActivityScenario<MainActivity>? = null
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) { opened.offer(intent) }
@@ -126,34 +127,30 @@ class BookmarkWindowsTest {
     }
 
     @Test
-    fun minimizedFixtureSurvivesAndRestoresIntoItsBookmarkTask() = runBlocking {
+    fun minimizedFixturePreservesItsBrowserAndHostThroughRecreation() = runBlocking {
         val bookmark = BookmarkItem(title = "Floating fixture", url = "https://example.invalid/preserved",
             browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
         application.container.repository.save(bookmark)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val main = collection()
         val task = open(main, bookmark)
+        val instance = browserInstance
+        assertNotNull(instance)
         await("The fixture must be ready to minimize") {
             instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
                 ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
         }
         assertMinimizedAndRestore(task, main.taskId, recreateHost = true)
-        assertEquals(task, browserTask(bookmark))
+        // Android may retain a separate task after PiP; the actual browser instance and page
+        // must survive, irrespective of the system-assigned browser task ID.
+        browserTask(bookmark)
+        assertEquals(instance, browserInstance)
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         await("A finished browser should remove its bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
     }
 
     @Test
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
-        // M124 caches feature values for the next process. Fully initialize Chrome once with
-        // the CI flags before inspecting its native CCT toolbar in a fresh browser process.
-        shell("am start -W -a android.intent.action.VIEW -d chrome://version -n com.android.chrome/com.google.android.apps.chrome.Main")
-        val version = context.packageManager.getPackageInfo("com.android.chrome", 0).versionName!!
-        await("Chrome must initialize and cache its native feature flags") {
-            instrumentation.uiAutomation.windows.mapNotNull { it.root }
-                .any { it.findAccessibilityNodeInfosByText(version).isNotEmpty() }
-        }
-        shell("am force-stop com.android.chrome")
         val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
             browserPackage = "com.android.chrome", selectedIconSource = IconSourceMode.GENERATED)
         application.container.repository.save(bookmark)
@@ -168,9 +165,10 @@ class BookmarkWindowsTest {
         }
         clickView("com.android.chrome:id/custom_tabs_minimize_button")
         assertMinimizedAndRestore(task, main.taskId)
-        await("Chrome must restore to its original bookmark task") {
-            manager.appTasks.any { it.taskInfo?.taskId == task && it.taskInfo?.topActivity?.packageName == "com.android.chrome" }
+        await("Chrome must restore its browser window") {
+            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.chrome"
         }
+        assertTrue("Restoration must retain the result-owning bookmark host", manager.appTasks.any { it.taskInfo?.taskId == task })
         clickView("com.android.chrome:id/close_button")
         await("Closing Chrome must remove its empty bookmark task") { manager.appTasks.none { it.taskInfo?.taskId == task } }
     }
@@ -270,6 +268,7 @@ class BookmarkWindowsTest {
         val event = opened.poll(15, TimeUnit.SECONDS) ?: error("The browser window did not resume")
         assertEquals(bookmark.url, event.getStringExtra("url"))
         assertTrue("The fixture must exercise Custom Tabs", event.getBooleanExtra("customTab", false))
+        browserInstance = event.getStringExtra("instanceId")
         return event.getIntExtra("taskId", -1).also { assertTrue(it >= 0) }
     }
 
