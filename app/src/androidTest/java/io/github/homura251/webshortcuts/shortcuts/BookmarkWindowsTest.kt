@@ -121,9 +121,7 @@ class BookmarkWindowsTest {
         // Model an external launcher, not a background app trying to start itself. Wait for the
         // system command so a pending Home transition cannot cover the activity afterwards.
         val component = ComponentName(context, MainActivity::class.java).flattenToString()
-        ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
-            "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $component"
-        )).use { it.readBytes() }
+        shell("am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $component")
         var activity: MainActivity? = null
         await("The application launcher should resume the collection, not a previous web page") {
             instrumentation.runOnMainSync {
@@ -136,13 +134,16 @@ class BookmarkWindowsTest {
     }
 
     private fun home() {
-        val launcher = context.packageManager.resolveActivity(
-            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY
-        )!!.activityInfo.packageName
-        assertTrue(instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME))
-        await("Home must finish becoming active before relaunching the application") {
-            instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == launcher
-        }
+        // Querying the Home package from the target is subject to package visibility. Let the
+        // system resolve and wait for Home itself, just as for the external launcher above.
+        shell("am start -W -a android.intent.action.MAIN -c android.intent.category.HOME")
+    }
+
+    private fun shell(command: String) {
+        val output = ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command)
+        ).use { it.readBytes().toString(Charsets.UTF_8) }
+        assertFalse(output, output.contains("Error:"))
     }
 
     private fun open(activity: MainActivity, bookmark: BookmarkItem): Int {
