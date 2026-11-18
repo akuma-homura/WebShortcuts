@@ -12,7 +12,8 @@ trap collect_screenshots EXIT
 
 # Exercise the real Chrome CCT controls without the emulator's first-run onboarding.
 adb shell am set-debug-app --persistent com.android.chrome
-adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+# The bundled M124 predates complete field-trial rollout; enable the native implementation for CI.
+adb shell 'echo "chrome --disable-fre --no-first-run --no-default-browser-check --enable-features=CCTMinimized --disable-low-end-device-mode" > /data/local/tmp/chrome-command-line'
 adb shell am force-stop com.android.chrome
 adb shell appops set com.android.chrome PICTURE_IN_PICTURE allow
 
