@@ -28,12 +28,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-${{ inputs.publish_tag && format('release-{0}', inputs.publish_tag) || inputs.inspect_run_id && format('inspect-{0}', inputs.inspect_run_id) || format('ci-{0}', github.head_ref || github.ref_name) }}
+  group: android-${{ inputs.publish_tag && format('release-{0}', inputs.publish_tag) || inputs.inspect_run_id && format('inspect-{0}', inputs.inspect_run_id) || github.event_name == 'workflow_dispatch' && !inputs.run_device_tests && format('preview-{0}', github.ref_name) || format('ci-{0}', github.head_ref || github.ref_name) }}
   cancel-in-progress: ${{ !inputs.publish_tag }}
 
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || (inputs.publish_tag == '' && inputs.inspect_run_id == '')
+    if: github.event_name != 'workflow_dispatch' || (inputs.run_device_tests && inputs.publish_tag == '' && inputs.inspect_run_id == '')
     name: Build, test and lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -94,6 +94,35 @@ jobs:
           path: |
             app/build/reports/
             app/build/test-results/
+          retention-days: 30
+
+  preview:
+    name: Build coexistable preview APK
+    if: github.event_name == 'workflow_dispatch' && !inputs.run_device_tests && inputs.publish_tag == '' && inputs.inspect_run_id == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Build the R8 preview
+        run: ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:assemblePreview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WebShortcuts-preview
+          path: app/build/outputs/apk/preview/app-preview.apk
+          if-no-files-found: error
           retention-days: 30
 
   device-tests:
