@@ -180,6 +180,37 @@ class BookmarkWindowsTest {
 
     @Test fun shortcutMinimizationDoesNotBringBackAStoppedCollection() = minimizeFromHome(true)
 
+    @Test fun fullBrowserFallbackRemainsInFrontWhenReusingAnOldTabHost(): Unit = runBlocking {
+        val bookmark = BookmarkItem(title = "Browser fallback", url = "https://example.invalid/fallback",
+            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        open(collection(), bookmark)
+        val main = collection()
+        instrumentation.uiAutomation.adoptShellPermissionIdentity()
+        try {
+            context.packageManager.setComponentEnabledSetting(
+                ComponentName(instrumentation.context, WindowBrowserServiceFixture::class.java),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+        } finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+        await("The fixture must now expose only its full browser") {
+            BrowserCatalog.list(context).any {
+                it.packageName == instrumentation.context.packageName && !it.supportsCustomTabs
+            }
+        }
+        opened.clear()
+        instrumentation.runOnMainSync { assertTrue(BookmarkWindows.open(main, bookmark).opened) }
+        val event = opened.poll(15, TimeUnit.SECONDS) ?: error("The full browser did not open")
+        assertEquals(bookmark.url, event.getStringExtra("url"))
+        assertFalse(event.getBooleanExtra("customTab", true))
+        await("The fallback browser must keep the foreground after hiding its old tab host") {
+            manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name }
+                .none { hasVisibleTask(it.taskInfo!!.taskId) } &&
+                instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == instrumentation.context.packageName
+        }
+        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+    }
+
     private fun minimizeFromHome(withCollection: Boolean): Unit = runBlocking {
         if (withCollection) scenario = ActivityScenario.launch(MainActivity::class.java)
         else manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == MainActivity::class.java.name }

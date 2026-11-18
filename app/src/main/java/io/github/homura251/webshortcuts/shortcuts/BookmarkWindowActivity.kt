@@ -49,7 +49,7 @@ class BookmarkWindowActivity : ComponentActivity() {
         val generation = routingGeneration
         if (browserOpened && leftForBrowser) lifecycleScope.launch {
             yield()
-            if (generation == routingGeneration && browserOpened && isEmptyHost()) hideHost()
+            if (generation == routingGeneration && browserOpened && isEmptyHost()) hideHost(revealCollection = true)
         }
     }
 
@@ -59,11 +59,11 @@ class BookmarkWindowActivity : ComponentActivity() {
         }?.setExcludeFromRecents(excluded)
     }
 
-    private fun hideHost() {
+    private fun hideHost(revealCollection: Boolean = false) {
         setHostExcluded(true)
         // Moving this task back animates the collection in again. If it is already visible
         // through our transparent window, reveal that same task without a second transition.
-        if (!MainActivity.returnToVisibleCollection(this)) moveTaskToBack(true)
+        if (!revealCollection || !MainActivity.returnToVisibleCollection(this)) moveTaskToBack(true)
     }
 
     private fun closeHost() {
