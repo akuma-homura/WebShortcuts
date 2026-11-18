@@ -1,6 +1,7 @@
 package io.github.homura251.webshortcuts
 
 import android.app.Activity
+import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
@@ -160,7 +161,8 @@ class MainActivity : ComponentActivity() {
             return try {
                 from.startActivity(Intent(from, MainActivity::class.java)
                     .setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+                    ActivityOptions.makeCustomAnimation(from, 0, 0).toBundle())
                 true
             } catch (_: ActivityNotFoundException) {
                 false

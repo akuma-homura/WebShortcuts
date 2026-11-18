@@ -150,11 +150,13 @@ class BookmarkWindowsTest {
         recreateHost(task)
         assertTaskArtwork(task, bookmark)
         opened.clear()
-        await("The fixture must be ready to minimize") {
-            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
-                ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        recordMinimization("fixture-minimize") {
+            await("The fixture must be ready to minimize") {
+                instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
+                    ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
+            assertMinimizedAndRestore(task, main)
         }
-        assertMinimizedAndRestore(task, main)
         // Android may retain a separate task after PiP; the actual browser instance and page
         // must survive, irrespective of the system-assigned browser task ID.
         browserTask(bookmark)
@@ -212,18 +214,24 @@ class BookmarkWindowsTest {
     }
 
     private fun minimizeFromHome(withCollection: Boolean): Unit = runBlocking {
-        if (withCollection) scenario = ActivityScenario.launch(MainActivity::class.java)
+        val bookmark = BookmarkItem(title = "Desktop shortcut", url = "https://example.invalid/desktop",
+            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
+        application.container.repository.save(bookmark)
+        var originalTask: Int? = null
+        if (withCollection) {
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            originalTask = open(collection(), bookmark)
+        }
         else manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == MainActivity::class.java.name }
             .forEach { it.finishAndRemoveTask() }
         home()
         val homePackage = shell("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME")
             .trim().lineSequence().last().substringBefore('/')
-        val bookmark = BookmarkItem(title = "Desktop shortcut", url = "https://example.invalid/desktop",
-            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
-        application.container.repository.save(bookmark)
         val router = ComponentName(context, ShortcutRouterActivity::class.java).flattenToString()
+        opened.clear()
         shell("am start -W -a ${ShortcutIntents.ACTION_OPEN_BOOKMARK} --es ${ShortcutIntents.EXTRA_BOOKMARK_ID} ${bookmark.id} -n $router")
         val task = browserTask(bookmark)
+        originalTask?.let { assertEquals("The desktop must reuse the old collection-origin anchor", it, task) }
         val instance = browserInstance
         await("The shortcut browser must minimize") {
             instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
@@ -343,7 +351,7 @@ class BookmarkWindowsTest {
         finally { expected.recycle() }
     }
 
-    private fun recordMinimization(action: () -> Unit) {
+    private fun recordMinimization(name: String = "chrome-minimize", action: () -> Unit) {
         val scales = listOf("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
             .associateWith { shell("settings get global $it").trim() }
         val existingRecorders = shell("pidof screenrecord").trim().split(Regex("\\s+")).toSet()
@@ -351,7 +359,7 @@ class BookmarkWindowsTest {
         var recorderPid: String? = null
         try {
             scales.keys.forEach { shell("settings put global $it 1") }
-            val file = File(context.getExternalFilesDir(null), "screenshots/chrome-minimize.mp4")
+            val file = File(context.getExternalFilesDir(null), "screenshots/$name.mp4")
             file.parentFile!!.mkdirs()
             file.delete()
             // UiAutomation runs an executable directly; shell operators such as & are not parsed.

@@ -4,15 +4,18 @@ import android.app.ActivityManager
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
 import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 
@@ -49,7 +52,32 @@ class BookmarkWindowActivity : ComponentActivity() {
         val generation = routingGeneration
         if (browserOpened && leftForBrowser) lifecycleScope.launch {
             yield()
-            if (generation == routingGeneration && browserOpened && isEmptyHost()) hideHost(revealCollection = true)
+            if (canHideEmptyHost(generation)) hideEmptyHost(generation)
+        }
+    }
+
+    private fun canHideEmptyHost(generation: Int): Boolean =
+        generation == routingGeneration && browserOpened &&
+            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && isEmptyHost()
+
+    private suspend fun hideEmptyHost(generation: Int) {
+        setHostExcluded(true)
+        // Some systems resume the transparent anchor before starting the collection below it.
+        // Only collection-origin launches wait for that lifecycle handoff; desktop launches
+        // keep their immediate return, and a new route or resumed browser cancels this work.
+        val deadline = SystemClock.uptimeMillis() +
+            if (intent.getBooleanExtra(BookmarkWindows.EXTRA_FROM_COLLECTION, false)) 500 else 0
+        while (canHideEmptyHost(generation)) {
+            if (MainActivity.returnToVisibleCollection(this)) {
+                Log.d("BookmarkWindow", "Empty host return: collection")
+                return
+            }
+            if (SystemClock.uptimeMillis() >= deadline) {
+                Log.d("BookmarkWindow", "Empty host return: moveToBack")
+                moveTaskToBack(true)
+                return
+            }
+            delay(16)
         }
     }
 
@@ -59,11 +87,9 @@ class BookmarkWindowActivity : ComponentActivity() {
         }?.setExcludeFromRecents(excluded)
     }
 
-    private fun hideHost(revealCollection: Boolean = false) {
+    private fun hideHost() {
         setHostExcluded(true)
-        // Moving this task back animates the collection in again. If it is already visible
-        // through our transparent window, reveal that same task without a second transition.
-        if (!revealCollection || !MainActivity.returnToVisibleCollection(this)) moveTaskToBack(true)
+        moveTaskToBack(true)
     }
 
     private fun closeHost() {
