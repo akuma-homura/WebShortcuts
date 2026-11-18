@@ -29,7 +29,9 @@ class BookmarkWindowActivity : ComponentActivity() {
         browserOpened = savedInstanceState?.getBoolean(STATE_BROWSER_OPENED) == true
         hasHostedTab = browserOpened || savedInstanceState?.getBoolean(STATE_HAS_HOSTED_TAB) == true
         leftForBrowser = browserOpened
-        if (!browserOpened) route(intent)
+        // Recreating an Activity clears its task description. Refresh the artwork while leaving
+        // an already hosted browser alone, including when it is floating in another task.
+        route(intent, launchBrowser = !browserOpened)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -92,29 +94,32 @@ class BookmarkWindowActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun route(incoming: Intent) {
+    private fun route(incoming: Intent, launchBrowser: Boolean = true) {
         routingGeneration++
         routingJob?.cancel()
-        browserOpened = false
-        leftForBrowser = false
+        if (launchBrowser) {
+            browserOpened = false
+            leftForBrowser = false
+        }
         routingJob = lifecycleScope.launch {
             try {
                 val id = incoming.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID)
                 if (incoming.action != ShortcutIntents.ACTION_OPEN_BOOKMARK || id.isNullOrBlank() || id.length > 128) {
-                    fail("快捷方式无效，请在 WebShortcuts 中重新添加")
+                    if (launchBrowser) fail("快捷方式无效，请在 WebShortcuts 中重新添加")
                     return@launch
                 }
                 val container = (application as WebShortcutsApplication).container
                 val bookmark = container.repository.find(id)
                 ensureActive()
                 if (bookmark == null || bookmark.isLocal) {
-                    fail("此网页收藏已变更，请在 WebShortcuts 中重新打开")
+                    if (launchBrowser) fail("此网页收藏已变更，请在 WebShortcuts 中重新打开")
                     return@launch
                 }
                 val icon = container.iconResolver.resolve(bookmark)
                 ensureActive()
                 @Suppress("DEPRECATION")
                 setTaskDescription(ActivityManager.TaskDescription(bookmark.title, icon))
+                if (!launchBrowser) return@launch
                 val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
                 when {
                     !result.opened -> fail(result.message ?: "暂时无法打开收藏")
@@ -129,7 +134,7 @@ class BookmarkWindowActivity : ComponentActivity() {
                 throw cancelled
             } catch (failure: Exception) {
                 Log.w("BookmarkWindow", "Window launch failed: ${failure.javaClass.simpleName}")
-                fail("暂时无法打开收藏，请打开 WebShortcuts 检查本地数据")
+                if (launchBrowser) fail("暂时无法打开收藏，请打开 WebShortcuts 检查本地数据")
             }
         }
     }

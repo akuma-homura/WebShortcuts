@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
                 !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return false
             return try {
                 from.startActivity(Intent(from, MainActivity::class.java)
+                    .setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
                 true
             } catch (_: ActivityNotFoundException) {

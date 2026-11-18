@@ -300,12 +300,15 @@ class BookmarkWindowsTest {
 
     @Suppress("DEPRECATION")
     private suspend fun assertTaskArtwork(task: Int, bookmark: BookmarkItem) {
-        val description = requireNotNull(manager.appTasks.first { it.taskInfo?.taskId == task }.taskInfo!!.taskDescription)
-        assertEquals(bookmark.title, description.label)
-        val icon = description.icon
-        assertNotNull("The task must expose its bookmark artwork", icon)
         val expected = application.container.iconResolver.resolve(bookmark)
-        try { assertEquals(expected.getPixel(0, 0), icon!!.getPixel(0, 0)) }
+        try {
+            await("The task must expose the latest bookmark label and artwork after loading") {
+                val description = manager.appTasks.firstOrNull { it.taskInfo?.taskId == task }?.taskInfo?.taskDescription
+                description?.label == bookmark.title && description.icon?.let {
+                    it.getPixel(0, 0) == expected.getPixel(0, 0)
+                } == true
+            }
+        }
         finally { expected.recycle() }
     }
 
@@ -317,7 +320,9 @@ class BookmarkWindowsTest {
             scales.keys.forEach { shell("settings put global $it 1") }
             val file = File(context.getExternalFilesDir(null), "screenshots/chrome-minimize.mp4")
             file.parentFile!!.mkdirs()
-            recorder = shell("screenrecord --time-limit 10 ${file.absolutePath} >/dev/null 2>&1 & echo \$!").trim()
+            file.delete()
+            recorder = shell("screenrecord --time-limit 15 ${file.absolutePath} >/dev/null 2>&1 & echo \$!").trim()
+            await("Recording must capture the browser before minimizing") { file.length() > 1024 }
             action()
         } finally {
             recorder?.takeIf { it.matches(Regex("[0-9]+")) }?.let { shell("kill -2 $it") }
