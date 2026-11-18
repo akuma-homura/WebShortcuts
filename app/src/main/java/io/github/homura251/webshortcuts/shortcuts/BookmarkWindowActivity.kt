@@ -2,14 +2,17 @@ package io.github.homura251.webshortcuts.shortcuts
 
 import android.app.ActivityManager
 import android.content.Intent
-import android.os.Bundle
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
-import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -54,25 +57,7 @@ class BookmarkWindowActivity : ComponentActivity() {
                 if (SystemClock.uptimeMillis() >= deadline) return@launch
                 delay(16)
             }
-            hideEmptyHost(deadline)
-        }
-    }
-
-    private suspend fun hideEmptyHost(deadline: Long) {
-        setHostExcluded(true)
-        // Only a tab opened from the collection should wait for it to become visible again.
-        val fromCollection = intent.getBooleanExtra(BookmarkWindows.EXTRA_FROM_COLLECTION, false)
-        while (fromCollection && isEmptyHost()) {
-            if (MainActivity.returnToVisibleCollection(this)) {
-                Log.d("BookmarkWindow", "Empty host return: collection")
-                return
-            }
-            if (SystemClock.uptimeMillis() >= deadline) break
-            delay(16)
-        }
-        if (isEmptyHost()) {
-            Log.d("BookmarkWindow", "Empty host return: moveToBack")
-            moveTaskToBack(true)
+            hideHost()
         }
     }
 
@@ -130,8 +115,7 @@ class BookmarkWindowActivity : ComponentActivity() {
                 }
                 val icon = container.iconResolver.resolve(bookmark)
                 ensureActive()
-                @Suppress("DEPRECATION")
-                setTaskDescription(ActivityManager.TaskDescription(bookmark.title, icon))
+                setBookmarkTaskDescription(bookmark.title, icon)
                 if (!launchBrowser) return@launch
                 val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
                 when {
@@ -150,6 +134,19 @@ class BookmarkWindowActivity : ComponentActivity() {
                 if (launchBrowser) fail("暂时无法打开收藏，请打开 WebShortcuts 检查本地数据")
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setBookmarkTaskDescription(title: String, artwork: Bitmap) {
+        // TaskDescription accepts a bitmap on older Android versions. Render the same system
+        // mask used by adaptive shortcut icons before handing that bitmap to Recents.
+        val size = minOf(artwork.width, artwork.height, 192)
+        val icon = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        AdaptiveIconDrawable(null, BitmapDrawable(resources, artwork)).apply {
+            setBounds(0, 0, size, size)
+            draw(Canvas(icon))
+        }
+        setTaskDescription(ActivityManager.TaskDescription(title, icon))
     }
 
     private fun fail(message: String) {

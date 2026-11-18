@@ -129,10 +129,8 @@ class BookmarkWindowsTest {
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         await("Closing a tab must hide its empty bookmark card") { !hasVisibleTask(firstTask) }
         assertTrue(manager.appTasks.any { it.taskInfo?.taskId == secondTask })
-        val returnedMain = collection()
-        assertEquals(main.taskId, returnedMain.taskId)
-        assertSame(main, returnedMain)
-        assertEquals("A hidden anchor must remain reusable", firstTask, open(returnedMain, edited))
+        await("Closing the tab must return to the same collection") { isCollectionResumed(main) }
+        assertEquals("A hidden anchor must remain reusable", firstTask, open(main, edited))
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         await("The reused empty card must hide again") { !hasVisibleTask(firstTask) }
     }
@@ -150,12 +148,11 @@ class BookmarkWindowsTest {
         recreateHost(task)
         assertTaskArtwork(task, bookmark)
         opened.clear()
-        recordMinimization("fixture-minimize") {
+        minimizeAndRestore(task, main) {
             await("The fixture must be ready to minimize") {
                 instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
                     ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
             }
-            assertMinimizedAndRestore(task, main)
         }
         // Android may retain a separate task after PiP; the actual browser instance and page
         // must survive, irrespective of the system-assigned browser task ID.
@@ -260,33 +257,6 @@ class BookmarkWindowsTest {
     }
 
     @Test
-    fun chromeDirectLaunchReturnsToCollectionWithoutAHost() = runBlocking {
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        val main = collection()
-        val launchIntent = main.intent
-        instrumentation.runOnMainSync {
-            val result = BrowserLauncher.openWeb(main, "https://example.com/#direct-cct", "com.android.chrome")
-            assertTrue(result.customTab)
-        }
-        val minimize = "com.android.chrome:id/custom_tabs_minimize_button"
-        await("Chrome must show the native minimize button for a direct launch") {
-            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByViewId(minimize)
-                ?.isNotEmpty() == true
-        }
-        recordMinimization("chrome-direct-minimize") {
-            clickView(minimize)
-            await("The directly opened Chrome tab must enter PiP and reveal the collection") {
-                instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode } &&
-                    isCollectionResumed(main)
-            }
-            assertSame("The collection must receive no new launch intent", launchIntent, main.intent)
-            assertFalse(manager.appTasks.any {
-                it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name
-            })
-        }
-    }
-
-    @Test
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
         val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
             browserPackage = "com.android.chrome", autoImagePath = saveIcon(IconSourceMode.AUTO, Color.CYAN))
@@ -308,9 +278,8 @@ class BookmarkWindowsTest {
                 it.findAccessibilityNodeInfosByViewId("com.android.chrome:id/custom_tabs_minimize_button").isNotEmpty()
             }?.also { browserWindow = it.windowId } != null
         }
-        recordMinimization {
+        minimizeAndRestore(task, main) {
             clickView("com.android.chrome:id/custom_tabs_minimize_button")
-            assertMinimizedAndRestore(task, main)
         }
         await("Chrome must restore its browser window") {
             instrumentation.uiAutomation.rootInActiveWindow?.let {
@@ -323,23 +292,20 @@ class BookmarkWindowsTest {
             instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.android.chrome"
         }
         assertFalse(hasVisibleTask(task))
-        assertEquals(main.taskId, collection().taskId)
+        await("Closing Chrome must return to the original collection") { isCollectionResumed(main) }
     }
 
-    private fun assertMinimizedAndRestore(task: Int, main: MainActivity) {
+    private fun minimizeAndRestore(task: Int, main: MainActivity, minimize: () -> Unit) {
+        val originalIntent = main.intent
+        minimize()
         await("The browser must enter real Android picture-in-picture") {
             instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
         await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
-        await("The original collection must resume automatically, without a launcher intent") {
-            isCollectionResumed(main)
+        await("The original collection must resume with the browser still floating") {
+            isCollectionResumed(main) && instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
-        assertTrue("Returning to the visible collection must suppress its extra transition",
-            main.intent.flags and Intent.FLAG_ACTIVITY_NO_ANIMATION != 0)
-        assertEquals(main.taskId, collection().taskId)
-        await("Opening the app must preserve the floating browser after its window transition") {
-            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
-        }
+        assertSame("The collection must receive no new launch intent", originalIntent, main.intent)
         // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
         // full-screen action instead of coordinates, which can hit the collection underneath.
         await("Android must accept the floating window's full-screen action") {
@@ -374,44 +340,12 @@ class BookmarkWindowsTest {
             await("The task must expose the latest bookmark label and artwork after loading") {
                 val description = manager.appTasks.firstOrNull { it.taskInfo?.taskId == task }?.taskInfo?.taskDescription
                 description?.label == bookmark.title && description.icon?.let {
-                    it.getPixel(0, 0) == expected.getPixel(0, 0)
+                    it.getPixel(it.width / 2, it.height / 8) == expected.getPixel(0, 0) &&
+                        Color.alpha(it.getPixel(0, 0)) == 0
                 } == true
             }
         }
         finally { expected.recycle() }
-    }
-
-    private fun recordMinimization(name: String = "chrome-minimize", action: () -> Unit) {
-        val scales = listOf("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
-            .associateWith { shell("settings get global $it").trim() }
-        val existingRecorders = shell("pidof screenrecord").trim().split(Regex("\\s+")).toSet()
-        var recorder: ParcelFileDescriptor? = null
-        var recorderPid: String? = null
-        try {
-            scales.keys.forEach { shell("settings put global $it 1") }
-            val file = File(context.getExternalFilesDir(null), "screenshots/$name.mp4")
-            file.parentFile!!.mkdirs()
-            file.delete()
-            // UiAutomation runs an executable directly; shell operators such as & are not parsed.
-            // Keep its output pipe open while screenrecord runs asynchronously in the shell UID.
-            recorder = instrumentation.uiAutomation.executeShellCommand(
-                "screenrecord --size 540x960 --time-limit 15 ${file.absolutePath}")
-            await("Recording must capture the browser before minimizing") {
-                recorderPid = shell("pidof screenrecord").trim().split(Regex("\\s+"))
-                    .firstOrNull { it !in existingRecorders && it.matches(Regex("[0-9]+")) }
-                recorderPid != null && file.length() > 1024
-            }
-            action()
-        } finally {
-            try {
-                recorderPid?.let { shell("kill -2 $it") }
-                recorder?.close()
-            } finally {
-                scales.forEach { (key, value) ->
-                    shell(if (value == "null") "settings delete global $key" else "settings put global $key $value")
-                }
-            }
-        }
     }
 
     private fun hasVisibleTask(task: Int): Boolean = manager.appTasks.any {

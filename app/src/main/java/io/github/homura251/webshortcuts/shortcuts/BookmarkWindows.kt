@@ -4,18 +4,14 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import io.github.homura251.webshortcuts.MainActivity
 import io.github.homura251.webshortcuts.data.BookmarkItem
 
 /** One document task per saved bookmark, independent of the collection's launcher task. */
 object BookmarkWindows {
-    internal const val EXTRA_FROM_COLLECTION = "io.github.homura251.webshortcuts.FROM_COLLECTION"
-
     fun open(context: Context, bookmark: BookmarkItem): LaunchResult {
         if (bookmark.isLocal) return BrowserLauncher.open(context, bookmark)
         return try {
-            context.startActivity(intent(context, bookmark.id)
-                .putExtra(EXTRA_FROM_COLLECTION, context is MainActivity))
+            context.startActivity(intent(context, bookmark.id))
             LaunchResult(true)
         } catch (_: ActivityNotFoundException) {
             LaunchResult(false, "无法打开网页窗口，请重试")
