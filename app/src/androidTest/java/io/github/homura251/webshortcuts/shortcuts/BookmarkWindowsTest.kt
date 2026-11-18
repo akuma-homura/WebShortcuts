@@ -3,7 +3,6 @@ package io.github.homura251.webshortcuts.shortcuts
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.ActivityManager
-import android.graphics.Rect
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -148,7 +147,7 @@ class BookmarkWindowsTest {
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
         // M124 caches feature values for the next process. Fully initialize Chrome once with
         // the CI flags before inspecting its native CCT toolbar in a fresh browser process.
-        shell("am start -W -a android.intent.action.VIEW -d chrome://version -p com.android.chrome")
+        shell("am start -W -a android.intent.action.VIEW -d chrome://version -n com.android.chrome/com.google.android.apps.chrome.Main")
         val version = context.packageManager.getPackageInfo("com.android.chrome", 0).versionName!!
         await("Chrome must initialize and cache its native feature flags") {
             instrumentation.uiAutomation.windows.mapNotNull { it.root }
@@ -194,10 +193,12 @@ class BookmarkWindowsTest {
             }
             instrumentation.runOnMainSync { host!!.recreate() }
         }
-        val bounds = Rect()
-        instrumentation.uiAutomation.windows.first { it.isInPictureInPictureMode }.getBoundsInScreen(bounds)
-        shell("input tap ${bounds.centerX()} ${bounds.centerY()}")
-        clickView("com.android.systemui:id/expand_button")
+        // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
+        // full-screen action instead of coordinates, which can hit the collection underneath.
+        await("Android must accept the floating window's full-screen action") {
+            instrumentation.uiAutomation.windows.firstOrNull { it.isInPictureInPictureMode }
+                ?.root?.performAction(AccessibilityNodeInfo.ACTION_EXPAND) == true
+        }
         await("The browser must leave picture-in-picture after expanding") {
             instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
         }
