@@ -14,11 +14,14 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import io.github.homura251.webshortcuts.WebShortcutsApplication
+import io.github.homura251.webshortcuts.data.BookmarkItem
+import io.github.homura251.webshortcuts.icons.IconResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 
 /** Keeps the browser's Custom Tab above a bookmark-specific document root, never above MainActivity. */
 class BookmarkWindowActivity : ComponentActivity() {
@@ -51,25 +54,28 @@ class BookmarkWindowActivity : ComponentActivity() {
         if (!browserOpened) return
         returnJob?.cancel()
         returnJob = lifecycleScope.launch {
-            val deadline = SystemClock.uptimeMillis() + 500
+            val fastPollUntil = SystemClock.uptimeMillis() + 500
             // The system can resume this Activity before publishing the detached tab's task info.
-            while (!isEmptyHost()) {
-                if (SystemClock.uptimeMillis() >= deadline) return@launch
-                delay(16)
+            while (!isEmptyHost() || !hideHost()) {
+                delay(if (SystemClock.uptimeMillis() < fastPollUntil) 16 else 250)
             }
-            hideHost()
         }
     }
 
     private fun setHostExcluded(excluded: Boolean) {
-        getSystemService(ActivityManager::class.java).appTasks.firstOrNull { task ->
-            runCatching { task.taskInfo?.baseIntent?.filterEquals(intent) == true }.getOrDefault(false)
-        }?.setExcludeFromRecents(excluded)
+        try {
+            getSystemService(ActivityManager::class.java).appTasks.firstOrNull { task ->
+                runCatching { task.taskInfo?.baseIntent?.filterEquals(intent) == true }.getOrDefault(false)
+            }?.setExcludeFromRecents(excluded)
+        } catch (failure: Exception) {
+            Log.w("BookmarkWindow", "Could not update Recents visibility: ${failure.javaClass.simpleName}")
+        }
     }
 
-    private fun hideHost() {
+    private fun hideHost(): Boolean {
+        if (!moveTaskToBack(true)) return false
         setHostExcluded(true)
-        moveTaskToBack(true)
+        return true
     }
 
     private fun closeHost() {
@@ -113,26 +119,38 @@ class BookmarkWindowActivity : ComponentActivity() {
                     if (launchBrowser) fail("此网页收藏已变更，请在 WebShortcuts 中重新打开")
                     return@launch
                 }
-                val icon = container.iconResolver.resolve(bookmark)
-                ensureActive()
-                setBookmarkTaskDescription(bookmark.title, icon)
-                if (!launchBrowser) return@launch
-                val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
-                when {
-                    !result.opened -> fail(result.message ?: "暂时无法打开收藏")
-                    result.customTab -> {
-                        browserOpened = true
-                        hasHostedTab = true
-                        setHostExcluded(false)
+                if (launchBrowser) {
+                    val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
+                    if (!result.customTab) {
+                        if (result.opened) closeHost() else fail(result.message ?: "暂时无法打开收藏")
+                        return@launch
                     }
-                    else -> closeHost()
+                    browserOpened = true
+                    hasHostedTab = true
+                    setHostExcluded(false)
                 }
+                refreshTaskDescription(bookmark, container.iconResolver)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 Log.w("BookmarkWindow", "Window launch failed: ${failure.javaClass.simpleName}")
                 if (launchBrowser) fail("暂时无法打开收藏，请打开 WebShortcuts 检查本地数据")
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun refreshTaskDescription(bookmark: BookmarkItem, resolver: IconResolver) {
+        try {
+            val artwork = resolver.resolve(bookmark)
+            coroutineContext.ensureActive()
+            setBookmarkTaskDescription(bookmark.title, artwork)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("BookmarkWindow", "Could not update task artwork: ${failure.javaClass.simpleName}")
+            coroutineContext.ensureActive()
+            runCatching { setTaskDescription(ActivityManager.TaskDescription(bookmark.title)) }
         }
     }
 
