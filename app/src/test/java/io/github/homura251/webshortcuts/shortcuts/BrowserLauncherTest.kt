@@ -19,6 +19,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsService
 import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.data.BookmarkItem
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -90,7 +91,7 @@ class BrowserLauncherTest {
         } finally { controller.pause().stop().destroy() }
     }
 
-    @Test fun bookmarkHostKeepsTheCustomTabInItsOwnDocumentTask() {
+    @Test fun bookmarkHostKeepsTheCustomTabInItsOwnDocumentTask() = runBlocking {
         installBrowser("org.mozilla.firefox", "Firefox", true)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -114,7 +115,7 @@ class BrowserLauncherTest {
         assertEquals(first.id, original.getStringExtra(ShortcutIntents.EXTRA_BOOKMARK_ID))
     }
 
-    @Test fun plainBrowserFallbackDoesNotNeedAnEmptyBookmarkHost() {
+    @Test fun plainBrowserFallbackDoesNotNeedAnEmptyBookmarkHost() = runBlocking {
         installBrowser("org.example.browser", "Other Browser", false)
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {

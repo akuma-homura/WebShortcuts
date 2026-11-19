@@ -2,6 +2,7 @@ package io.github.homura251.webshortcuts.shortcuts
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -9,11 +10,19 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsCallback
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.browser.customtabs.CustomTabsServiceConnection
+import androidx.browser.customtabs.CustomTabsSession
 import androidx.core.content.ContextCompat
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.data.UrlNormalizer
 import io.github.homura251.webshortcuts.local.LocalPageActivity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.coroutineContext
 
 data class LaunchResult(val opened: Boolean, val message: String? = null, val customTab: Boolean = false)
 
@@ -28,13 +37,26 @@ object BrowserLauncher {
     }
 
     fun openWeb(context: Context, url: String, browserPackage: String? = null): LaunchResult {
-        return launchWeb(context, url, browserPackage, separateTask = true)
+        return launchWeb(context, url, browserPackage, separateTask = true) { null }
     }
 
-    internal fun openInBookmarkTask(context: Context, bookmark: BookmarkItem): LaunchResult =
-        launchWeb(context, bookmark.url, bookmark.browserPackage, separateTask = false)
+    internal suspend fun openInBookmarkTask(
+        context: Context,
+        bookmark: BookmarkItem,
+        callback: CustomTabsCallback? = null,
+    ): LaunchResult = launchWeb(context, bookmark.url, bookmark.browserPackage, separateTask = false) { provider ->
+        val session = callback?.let { createSession(context.applicationContext, provider, it) }
+        coroutineContext.ensureActive()
+        session
+    }
 
-    private fun launchWeb(context: Context, url: String, browserPackage: String?, separateTask: Boolean): LaunchResult {
+    private inline fun launchWeb(
+        context: Context,
+        url: String,
+        browserPackage: String?,
+        separateTask: Boolean,
+        sessionForProvider: (String) -> CustomTabsSession?,
+    ): LaunchResult {
         val uri = try { Uri.parse(UrlNormalizer.normalize(url)) } catch (_: IllegalArgumentException) {
             return LaunchResult(false, "网址无效，请编辑此快捷方式")
         }
@@ -45,7 +67,7 @@ object BrowserLauncher {
         }
         for (browser in candidates) {
             if (browser.supportsCustomTabs) {
-                val tab = CustomTabsIntent.Builder()
+                val tab = CustomTabsIntent.Builder(sessionForProvider(browser.packageName))
                     .setShowTitle(true)
                     .setColorScheme(CustomTabsIntent.COLOR_SCHEME_SYSTEM)
                     .setDefaultColorSchemeParams(CustomTabColorSchemeParams.Builder()
@@ -75,6 +97,34 @@ object BrowserLauncher {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return LaunchResult(true)
         return LaunchResult(false, if (browserPackage == null) "未找到可用浏览器，请安装 Chrome、Firefox 等浏览器"
             else "无法启动所选浏览器 ${BrowserCatalog.knownLabel(browserPackage)}，请检查浏览器或更换设置")
+    }
+
+    private suspend fun createSession(
+        context: Context,
+        provider: String,
+        callback: CustomTabsCallback,
+    ): CustomTabsSession? {
+        val connected = CompletableDeferred<CustomTabsClient?>()
+        val connection = object : CustomTabsServiceConnection() {
+            override fun onCustomTabsServiceConnected(name: ComponentName, client: CustomTabsClient) {
+                connected.complete(client)
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) { connected.complete(null) }
+            override fun onNullBinding(name: ComponentName) { connected.complete(null) }
+            override fun onBindingDied(name: ComponentName) { connected.complete(null) }
+        }
+        return try {
+            // Keep launching usable for providers without a working session service.
+            if (CustomTabsClient.bindCustomTabsService(context, provider, connection)) {
+                withTimeoutOrNull(2_000) { connected.await() }?.newSession(callback)
+            } else null
+        } catch (_: SecurityException) {
+            null
+        } finally {
+            // The tab carries the session's callback binder after this temporary bind.
+            runCatching { context.unbindService(connection) }
+        }
     }
 
     private fun start(context: Context, intent: Intent): Boolean {

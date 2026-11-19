@@ -191,12 +191,20 @@ class BookmarkWindowsTest {
                 it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
             } == true
         }
-        await("Restoration must not show an empty bookmark card") { !hasVisibleTask(task) }
+        await("The restored Chrome window must have its original bookmark card") { hasVisibleTask(task) }
+        assertEquals(main.taskId, collection().taskId)
+        assertTrue("Switching tasks must keep the restored bookmark card in Recents", hasVisibleTask(task))
+        manager.appTasks.first { it.taskInfo?.taskId == task }.moveToFront()
+        await("Selecting the bookmark card must return to the restored Chrome window") {
+            instrumentation.uiAutomation.rootInActiveWindow?.let {
+                it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
+            } == true
+        }
         clickView("com.android.chrome:id/close_button")
         await("Closing Chrome must dismiss its browser window") {
             instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.android.chrome"
         }
-        assertFalse(hasVisibleTask(task))
+        await("Closing Chrome must hide the empty bookmark card") { !hasVisibleTask(task) }
         assertEquals(main.taskId, collection().taskId)
     }
 

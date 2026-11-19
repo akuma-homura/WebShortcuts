@@ -152,7 +152,7 @@ def validate_run(run, repo, sha):
     if run['repository']['full_name'] != repo or run.get('head_repository', {}).get('full_name') != repo:
         raise ValueError('Build must belong to this repository')
     if run['status'] != 'completed' or run['conclusion'] != 'success':
-        raise ValueError('Build and device tests must finish successfully before publication')
+        raise ValueError('Build and tests must finish successfully before publication')
     if run['event'] not in ('workflow_dispatch', 'push'):
         raise ValueError('Use a branch/tag build, not a pull request merge build')
     if run['head_sha'] != sha:
@@ -174,7 +174,10 @@ def validate():
     run = api(f'repos/{repo}/actions/runs/{run_id}')
     validate_run(run, repo, sha)
     jobs = api(f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest')['jobs']
-    for name in ('Build, test and lint', 'Android 35 device tests'):
+    build_and_unit_tests = ('Build APKs', 'Unit tests and lint')
+    if not any(job['name'] in build_and_unit_tests for job in jobs):
+        build_and_unit_tests = ('Build, test and lint',)
+    for name in (*build_and_unit_tests, 'Android 35 device tests'):
         if not any(j['name'] == name and j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs):
             raise ValueError(f'Missing successful job: {name}')
     artifacts = api(f'repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100')['artifacts']
