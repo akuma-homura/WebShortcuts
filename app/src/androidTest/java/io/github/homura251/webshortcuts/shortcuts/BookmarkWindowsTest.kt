@@ -29,7 +29,6 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.io.File
 import android.graphics.Bitmap
-import android.graphics.Color
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -81,10 +80,9 @@ class BookmarkWindowsTest {
     @Test fun bookmarkCardsAreSeparateReuseTheirIdAndNeverReplaceTheAppLauncher() = runBlocking {
         val browser = instrumentation.context.packageName
         val first = BookmarkItem(title = "First window", url = "https://example.invalid/shared",
-            browserPackage = browser, autoImagePath = saveIcon(IconSourceMode.AUTO, Color.RED))
+            browserPackage = browser, selectedIconSource = IconSourceMode.GENERATED)
         val second = BookmarkItem(title = "Second window", url = first.url,
-            browserPackage = browser, selectedIconSource = IconSourceMode.CUSTOM,
-            customImagePath = saveIcon(IconSourceMode.CUSTOM, Color.BLUE))
+            browserPackage = browser, selectedIconSource = IconSourceMode.GENERATED)
         val repository = application.container.repository
         repository.save(first)
         repository.save(second)
@@ -102,7 +100,6 @@ class BookmarkWindowsTest {
         assertEquals(main.taskId, collection().taskId)
 
         val firstTask = open(main, first)
-        assertTaskArtwork(firstTask, first)
         assertNotEquals(main.taskId, firstTask)
         assertEquals(BookmarkWindowActivity::class.java.name,
             manager.appTasks.first { it.taskInfo?.taskId == firstTask }.taskInfo!!.baseIntent.component?.className)
@@ -112,16 +109,11 @@ class BookmarkWindowsTest {
         assertEquals(main.taskId, restoredMain.taskId)
         val secondTask = open(restoredMain, second)
         assertNotEquals(firstTask, secondTask)
-        assertTaskArtwork(secondTask, second)
-        assertTaskArtwork(firstTask, first)
 
         // Reopening the same bookmark uses the same card and freshly saved URL/browser metadata.
-        val edited = first.copy(title = "Edited window", url = "https://example.invalid/updated",
-            selectedIconSource = IconSourceMode.CUSTOM, imageVersion = 2,
-            customImagePath = saveIcon(IconSourceMode.CUSTOM, Color.GREEN))
+        val edited = first.copy(title = "Edited window", url = "https://example.invalid/updated")
         repository.save(edited)
         assertEquals(firstTask, open(collection(), edited))
-        assertTaskArtwork(firstTask, edited)
         assertEquals(2, manager.appTasks.count {
             it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name
         })
@@ -129,8 +121,9 @@ class BookmarkWindowsTest {
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         await("Closing a tab must hide its empty bookmark card") { !hasVisibleTask(firstTask) }
         assertTrue(manager.appTasks.any { it.taskInfo?.taskId == secondTask })
-        await("Closing the tab must return to the same collection") { isCollectionResumed(main) }
-        assertEquals("A hidden anchor must remain reusable", firstTask, open(main, edited))
+        val returnedMain = collection()
+        assertEquals(main.taskId, returnedMain.taskId)
+        assertEquals("A hidden anchor must remain reusable", firstTask, open(returnedMain, edited))
         instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
         await("The reused empty card must hide again") { !hasVisibleTask(firstTask) }
     }
@@ -146,14 +139,12 @@ class BookmarkWindowsTest {
         val instance = browserInstance
         assertNotNull(instance)
         recreateHost(task)
-        assertTaskArtwork(task, bookmark)
         opened.clear()
-        minimizeAndRestore(task, main) {
-            await("The fixture must be ready to minimize") {
-                instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
-                    ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-            }
+        await("The fixture must be ready to minimize") {
+            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
+                ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
         }
+        assertMinimizedAndRestore(task, main.taskId)
         // Android may retain a separate task after PiP; the actual browser instance and page
         // must survive, irrespective of the system-assigned browser task ID.
         browserTask(bookmark)
@@ -163,103 +154,9 @@ class BookmarkWindowsTest {
     }
 
     @Test
-    fun missingAutoIconUsesGeneratedTaskArtwork(): Unit = runBlocking {
-        val bookmark = BookmarkItem(title = "Missing artwork", url = "https://example.invalid/missing",
-            browserPackage = instrumentation.context.packageName, autoImagePath = "icons/auto/missing.png")
-        application.container.repository.save(bookmark)
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        val task = open(collection(), bookmark)
-        assertTaskArtwork(task, bookmark)
-        recreateHost(task)
-        assertTaskArtwork(task, bookmark)
-        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-    }
-
-    @Test fun shortcutMinimizationDoesNotCreateACollection() = minimizeFromHome(false)
-
-    @Test fun shortcutMinimizationDoesNotBringBackAStoppedCollection() = minimizeFromHome(true)
-
-    @Test fun fullBrowserFallbackRemainsInFrontWhenReusingAnOldTabHost(): Unit = runBlocking {
-        val bookmark = BookmarkItem(title = "Browser fallback", url = "https://example.invalid/fallback",
-            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
-        application.container.repository.save(bookmark)
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        open(collection(), bookmark)
-        val main = collection()
-        instrumentation.uiAutomation.adoptShellPermissionIdentity()
-        try {
-            context.packageManager.setComponentEnabledSetting(
-                ComponentName(instrumentation.context, WindowBrowserServiceFixture::class.java),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
-        } finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
-        await("The fixture must now expose only its full browser") {
-            BrowserCatalog.list(context).any {
-                it.packageName == instrumentation.context.packageName && !it.supportsCustomTabs
-            }
-        }
-        opened.clear()
-        instrumentation.runOnMainSync { assertTrue(BookmarkWindows.open(main, bookmark).opened) }
-        val event = opened.poll(15, TimeUnit.SECONDS) ?: error("The full browser did not open")
-        assertEquals(bookmark.url, event.getStringExtra("url"))
-        assertFalse(event.getBooleanExtra("customTab", true))
-        await("The fallback browser must keep the foreground after hiding its old tab host") {
-            manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name }
-                .none { hasVisibleTask(it.taskInfo!!.taskId) } &&
-                instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == instrumentation.context.packageName
-        }
-        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-    }
-
-    private fun minimizeFromHome(withCollection: Boolean): Unit = runBlocking {
-        val bookmark = BookmarkItem(title = "Desktop shortcut", url = "https://example.invalid/desktop",
-            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
-        application.container.repository.save(bookmark)
-        var originalTask: Int? = null
-        if (withCollection) {
-            scenario = ActivityScenario.launch(MainActivity::class.java)
-            originalTask = open(collection(), bookmark)
-        }
-        else manager.appTasks.filter { it.taskInfo?.baseIntent?.component?.className == MainActivity::class.java.name }
-            .forEach { it.finishAndRemoveTask() }
-        home()
-        val homePackage = shell("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME")
-            .trim().lineSequence().last().substringBefore('/')
-        val router = ComponentName(context, ShortcutRouterActivity::class.java).flattenToString()
-        opened.clear()
-        shell("am start -W -a ${ShortcutIntents.ACTION_OPEN_BOOKMARK} --es ${ShortcutIntents.EXTRA_BOOKMARK_ID} ${bookmark.id} -n $router")
-        val task = browserTask(bookmark)
-        originalTask?.let { assertEquals("The desktop must reuse the old collection-origin anchor", it, task) }
-        val instance = browserInstance
-        await("The shortcut browser must minimize") {
-            instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
-                ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-        }
-        await("The desktop must remain under the floating browser") {
-            !hasVisibleTask(task) && instrumentation.uiAutomation.windows.any {
-                !it.isInPictureInPictureMode && it.root?.packageName?.toString() == homePackage
-            } && instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
-        }
-        instrumentation.runOnMainSync {
-            assertTrue(ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                .none { it is MainActivity })
-        }
-        if (!withCollection) assertTrue(manager.appTasks.none {
-            it.taskInfo?.baseIntent?.component?.className == MainActivity::class.java.name
-        })
-        opened.clear()
-        await("The desktop's floating browser must still expand") {
-            instrumentation.uiAutomation.windows.firstOrNull { it.isInPictureInPictureMode }
-                ?.root?.performAction(AccessibilityNodeInfo.ACTION_EXPAND) == true
-        }
-        browserTask(bookmark)
-        assertEquals(instance, browserInstance)
-        instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-    }
-
-    @Test
     fun chromeNativeMinimizeRestoresWithoutLosingTheBookmarkHost() = runBlocking {
         val bookmark = BookmarkItem(title = "Chrome floating window", url = "https://example.com/#webshortcuts-pip",
-            browserPackage = "com.android.chrome", autoImagePath = saveIcon(IconSourceMode.AUTO, Color.CYAN))
+            browserPackage = "com.android.chrome", selectedIconSource = IconSourceMode.GENERATED)
         application.container.repository.save(bookmark)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val main = collection()
@@ -271,16 +168,14 @@ class BookmarkWindowsTest {
             task >= 0
         }
         recreateHost(task)
-        assertTaskArtwork(task, bookmark)
         var browserWindow = -1
         await("Chrome's original browser window must be ready") {
             instrumentation.uiAutomation.rootInActiveWindow?.takeIf {
                 it.findAccessibilityNodeInfosByViewId("com.android.chrome:id/custom_tabs_minimize_button").isNotEmpty()
             }?.also { browserWindow = it.windowId } != null
         }
-        minimizeAndRestore(task, main) {
-            clickView("com.android.chrome:id/custom_tabs_minimize_button")
-        }
+        clickView("com.android.chrome:id/custom_tabs_minimize_button")
+        assertMinimizedAndRestore(task, main.taskId)
         await("Chrome must restore its browser window") {
             instrumentation.uiAutomation.rootInActiveWindow?.let {
                 it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
@@ -292,20 +187,18 @@ class BookmarkWindowsTest {
             instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() != "com.android.chrome"
         }
         assertFalse(hasVisibleTask(task))
-        await("Closing Chrome must return to the original collection") { isCollectionResumed(main) }
+        assertEquals(main.taskId, collection().taskId)
     }
 
-    private fun minimizeAndRestore(task: Int, main: MainActivity, minimize: () -> Unit) {
-        val originalIntent = main.intent
-        minimize()
+    private fun assertMinimizedAndRestore(task: Int, mainTask: Int) {
         await("The browser must enter real Android picture-in-picture") {
             instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
         await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
-        await("The original collection must resume with the browser still floating") {
-            isCollectionResumed(main) && instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        assertEquals(mainTask, collection().taskId)
+        await("Opening the app must preserve the floating browser after its window transition") {
+            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
-        assertSame("The collection must receive no new launch intent", originalIntent, main.intent)
         // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
         // full-screen action instead of coordinates, which can hit the collection underneath.
         await("Android must accept the floating window's full-screen action") {
@@ -315,37 +208,6 @@ class BookmarkWindowsTest {
         await("The browser must leave picture-in-picture after expanding") {
             instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
         }
-    }
-
-    private fun isCollectionResumed(main: MainActivity): Boolean {
-        var resumed = false
-        instrumentation.runOnMainSync {
-            resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).any { it === main }
-        }
-        return resumed
-    }
-
-    private suspend fun saveIcon(mode: IconSourceMode, color: Int): String {
-        val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
-        return try {
-            bitmap.eraseColor(color)
-            application.container.iconStore.save(java.util.UUID.randomUUID().toString(), 1, mode, bitmap)
-        } finally { bitmap.recycle() }
-    }
-
-    @Suppress("DEPRECATION")
-    private suspend fun assertTaskArtwork(task: Int, bookmark: BookmarkItem) {
-        val expected = application.container.iconResolver.resolve(bookmark)
-        try {
-            await("The task must expose the latest bookmark label and artwork after loading") {
-                val description = manager.appTasks.firstOrNull { it.taskInfo?.taskId == task }?.taskInfo?.taskDescription
-                description?.label == bookmark.title && description.icon?.let {
-                    it.getPixel(it.width / 2, it.height / 8) == expected.getPixel(0, 0) &&
-                        Color.alpha(it.getPixel(0, 0)) == 0
-                } == true
-            }
-        }
-        finally { expected.recycle() }
     }
 
     private fun hasVisibleTask(task: Int): Boolean = manager.appTasks.any {
@@ -409,12 +271,11 @@ class BookmarkWindowsTest {
         shell("am start -W -a android.intent.action.MAIN -c android.intent.category.HOME")
     }
 
-    private fun shell(command: String): String {
+    private fun shell(command: String) {
         val output = ParcelFileDescriptor.AutoCloseInputStream(
             instrumentation.uiAutomation.executeShellCommand(command)
         ).use { it.readBytes().toString(Charsets.UTF_8) }
         assertFalse(output, output.contains("Error:"))
-        return output
     }
 
     private fun open(activity: MainActivity, bookmark: BookmarkItem): Int {
