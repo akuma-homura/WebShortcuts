@@ -29,6 +29,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.io.File
 import android.graphics.Bitmap
+import android.graphics.Color
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -80,9 +81,10 @@ class BookmarkWindowsTest {
     @Test fun bookmarkCardsAreSeparateReuseTheirIdAndNeverReplaceTheAppLauncher() = runBlocking {
         val browser = instrumentation.context.packageName
         val first = BookmarkItem(title = "First window", url = "https://example.invalid/shared",
-            browserPackage = browser, selectedIconSource = IconSourceMode.GENERATED)
+            browserPackage = browser, autoImagePath = saveCardIcon(IconSourceMode.AUTO, Color.RED))
         val second = BookmarkItem(title = "Second window", url = first.url,
-            browserPackage = browser, selectedIconSource = IconSourceMode.GENERATED)
+            browserPackage = browser, selectedIconSource = IconSourceMode.CUSTOM,
+            customImagePath = saveCardIcon(IconSourceMode.CUSTOM, Color.BLUE))
         val repository = application.container.repository
         repository.save(first)
         repository.save(second)
@@ -100,6 +102,7 @@ class BookmarkWindowsTest {
         assertEquals(main.taskId, collection().taskId)
 
         val firstTask = open(main, first)
+        assertTaskArtwork(firstTask, first)
         assertNotEquals(main.taskId, firstTask)
         assertEquals(BookmarkWindowActivity::class.java.name,
             manager.appTasks.first { it.taskInfo?.taskId == firstTask }.taskInfo!!.baseIntent.component?.className)
@@ -109,11 +112,16 @@ class BookmarkWindowsTest {
         assertEquals(main.taskId, restoredMain.taskId)
         val secondTask = open(restoredMain, second)
         assertNotEquals(firstTask, secondTask)
+        assertTaskArtwork(secondTask, second)
+        assertTaskArtwork(firstTask, first)
 
         // Reopening the same bookmark uses the same card and freshly saved URL/browser metadata.
-        val edited = first.copy(title = "Edited window", url = "https://example.invalid/updated")
+        val edited = first.copy(title = "Edited window", url = "https://example.invalid/updated",
+            selectedIconSource = IconSourceMode.CUSTOM, imageVersion = 2,
+            customImagePath = saveCardIcon(IconSourceMode.CUSTOM, Color.GREEN))
         repository.save(edited)
         assertEquals(firstTask, open(collection(), edited))
+        assertTaskArtwork(firstTask, edited)
         assertEquals(2, manager.appTasks.count {
             it.taskInfo?.baseIntent?.component?.className == BookmarkWindowActivity::class.java.name
         })
@@ -131,14 +139,16 @@ class BookmarkWindowsTest {
     @Test
     fun minimizedFixturePreservesItsBrowserAcrossHostRecreation() = runBlocking {
         val bookmark = BookmarkItem(title = "Floating fixture", url = "https://example.invalid/preserved",
-            browserPackage = instrumentation.context.packageName, selectedIconSource = IconSourceMode.GENERATED)
+            browserPackage = instrumentation.context.packageName, autoImagePath = "icons/auto/missing.png")
         application.container.repository.save(bookmark)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val main = collection()
         val task = open(main, bookmark)
         val instance = browserInstance
         assertNotNull(instance)
+        assertTaskArtwork(task, bookmark)
         recreateHost(task)
+        assertTaskArtwork(task, bookmark)
         opened.clear()
         await("The fixture must be ready to minimize") {
             instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
@@ -207,6 +217,33 @@ class BookmarkWindowsTest {
         }
         await("The browser must leave picture-in-picture after expanding") {
             instrumentation.uiAutomation.windows.none { it.isInPictureInPictureMode }
+        }
+    }
+
+    private suspend fun saveCardIcon(mode: IconSourceMode, color: Int): String {
+        val artwork = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        return try {
+            artwork.eraseColor(color)
+            application.container.iconStore.save(java.util.UUID.randomUUID().toString(), 1, mode, artwork)
+        } finally {
+            artwork.recycle()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun assertTaskArtwork(task: Int, bookmark: BookmarkItem) {
+        val artwork = application.container.iconResolver.resolve(bookmark)
+        try {
+            val expectedColor = artwork.getPixel(0, 0)
+            await("The task must show the selected bookmark icon inside the system mask") {
+                val description = manager.appTasks.firstOrNull { it.taskInfo?.taskId == task }?.taskInfo?.taskDescription
+                description?.label == bookmark.title && description.icon?.let { icon ->
+                    icon.getPixel(icon.width / 2, icon.height / 8) == expectedColor &&
+                        Color.alpha(icon.getPixel(0, 0)) == 0
+                } == true
+            }
+        } finally {
+            artwork.recycle()
         }
     }
 
