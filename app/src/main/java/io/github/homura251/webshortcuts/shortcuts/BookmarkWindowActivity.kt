@@ -6,24 +6,33 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
+import androidx.annotation.OptIn
+import androidx.browser.customtabs.CustomTabsCallback
+import androidx.browser.customtabs.ExperimentalMinimizationCallback
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewModelScope
 import io.github.homura251.webshortcuts.WebShortcutsApplication
 import io.github.homura251.webshortcuts.data.BookmarkItem
 import io.github.homura251.webshortcuts.icons.IconResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlin.coroutines.coroutineContext
 
 /** Keeps the browser's Custom Tab above a bookmark-specific document root, never above MainActivity. */
 class BookmarkWindowActivity : ComponentActivity() {
+    private val tabSession by viewModels<BookmarkTabSession>()
     private var routingJob: Job? = null
     private var browserOpened = false
     private var leftForBrowser = false
@@ -57,10 +66,12 @@ class BookmarkWindowActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun hostTask(): ActivityManager.AppTask? = getSystemService(ActivityManager::class.java).appTasks
+        .firstOrNull { task -> runCatching { task.taskInfo?.persistentId == taskId }.getOrDefault(false) }
+
     private fun setHostExcluded(excluded: Boolean) {
-        getSystemService(ActivityManager::class.java).appTasks.firstOrNull { task ->
-            runCatching { task.taskInfo?.baseIntent?.filterEquals(intent) == true }.getOrDefault(false)
-        }?.setExcludeFromRecents(excluded)
+        hostTask()?.setExcludeFromRecents(excluded)
     }
 
     private fun hideHost() {
@@ -74,10 +85,7 @@ class BookmarkWindowActivity : ComponentActivity() {
 
     private fun isEmptyHost(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
-        return getSystemService(ActivityManager::class.java).appTasks.any { task ->
-            val info = runCatching { task.taskInfo }.getOrNull()
-            info != null && info.taskId == taskId && info.numActivities == 1
-        }
+        return runCatching { hostTask()?.taskInfo?.numActivities == 1 }.getOrDefault(false)
     }
 
     override fun onPause() {
@@ -100,6 +108,7 @@ class BookmarkWindowActivity : ComponentActivity() {
         routingGeneration++
         routingJob?.cancel()
         if (launchBrowser) {
+            tabSession.reset()
             browserOpened = false
             leftForBrowser = false
         }
@@ -118,7 +127,8 @@ class BookmarkWindowActivity : ComponentActivity() {
                     return@launch
                 }
                 if (launchBrowser) {
-                    val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark)
+                    val callback = hostTask()?.let(tabSession::callbackFor)
+                    val result = BrowserLauncher.openInBookmarkTask(this@BookmarkWindowActivity, bookmark, callback)
                     if (!result.customTab) {
                         if (result.opened) closeHost() else fail(result.message ?: "暂时无法打开收藏")
                         return@launch
@@ -168,4 +178,48 @@ class BookmarkWindowActivity : ComponentActivity() {
         const val STATE_BROWSER_OPENED = "browserOpened"
         const val STATE_HAS_HOSTED_TAB = "hasHostedTab"
     }
+}
+
+/** Retains the browser callback when Android recreates the bookmark host. */
+internal class BookmarkTabSession : ViewModel() {
+    private var callback: CustomTabsCallback? = null
+    private var restoreJob: Job? = null
+
+    fun reset() {
+        callback = null
+        restoreJob?.cancel()
+    }
+
+    @OptIn(ExperimentalMinimizationCallback::class)
+    fun callbackFor(task: ActivityManager.AppTask): CustomTabsCallback = object : CustomTabsCallback() {
+        override fun onMinimized(extras: Bundle) {
+            if (callback === this) restoreJob?.cancel()
+        }
+
+        override fun onUnminimized(extras: Bundle) {
+            restoreCard()
+        }
+
+        override fun onNavigationEvent(navigationEvent: Int, extras: Bundle?) {
+            if (navigationEvent == CustomTabsCallback.TAB_SHOWN) restoreCard()
+        }
+
+        private fun restoreCard() {
+            if (callback !== this) return
+            restoreJob?.cancel()
+            restoreJob = viewModelScope.launch {
+                // Android can deliver this callback before moving the browser back into its task.
+                withTimeoutOrNull(2_000) {
+                    while (true) {
+                        val info = runCatching { task.taskInfo }.getOrNull() ?: return@withTimeoutOrNull
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || info.numActivities > 1) {
+                            runCatching { task.setExcludeFromRecents(false) }
+                            return@withTimeoutOrNull
+                        }
+                        delay(50)
+                    }
+                }
+            }
+        }
+    }.also { callback = it }
 }

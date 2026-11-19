@@ -44,11 +44,11 @@ WebShortcuts v1.5 使用 Kotlin、Jetpack Compose 和 Material 3 Expressive。�
 
 ## 获取 APK
 
-打开仓库的 **Actions → Android CI → 成功的运行记录 → Artifacts**：
+打开仓库的 **Actions → Android CI → 成功的运行记录 → Artifacts**，点击 APK 文件名即可直接下载。
 
-- `WebShortcuts-debug`：解压后的 `app-debug.apk` 可直接侧载安装，适合功能体验。
-- `WebShortcuts-release`：启用 R8 并由固定正式密钥签名的发布包，供日常安装和后续覆盖升级；仅在仓库配置签名密钥时生成。
-- `WebShortcuts-release-unsigned`：启用 R8 的未签名发布包，供自行签名。
+- `app-debug.apk`：可直接侧载安装，适合功能体验。
+- `app-release.apk`：由固定正式密钥签名的 R8 发布包，供日常安装和覆盖升级。仓库配置签名密钥后生成。
+- `app-release-unsigned.apk`：启用 R8 的未签名发布包，供自行签名。
 - `verification-reports`、`device-test-reports`：单元测试、Lint 和设备测试结果。
 - `device-screenshots`：Android 模拟器实际渲染的浅色、深色和编辑页截图，演示数据只存在于测试中。
 
@@ -66,16 +66,15 @@ Android CI 的手动发布使用两个可选字段：`publish_tag` 和 `build_ru
 
 仓库维护者需在 Actions Secrets 配置 `RELEASE_KEYSTORE_BASE64`（完整 JKS/PKCS12 文件的 Base64）、`RELEASE_KEYSTORE_PASSWORD`、`RELEASE_KEY_ALIAS` 和 `RELEASE_KEY_PASSWORD`。签名脚本兼容 CRLF 换行、Base64 换行和 URL-safe 编码，密码通过环境变量传递；临时解码文件在签名后删除。密钥与密码应另行安全备份，不得提交到仓库。没有密钥时仍可运行构建与设备测试，但只提供测试构建，不发布为正式版本。
 
-## 本地构建
+## 云端测试与本地构建
+
+GitHub Actions 的 **Android CI** 并行运行 APK 构建、单元测试与 Lint、Android 35 设备测试。测试由云端运行，结果保存在对应运行的 Artifacts 中。
 
 安装 JDK 17、Android SDK Platform 37.0 和 Build Tools 36.0.0，然后用 Android Studio 打开仓库，或配置 `ANDROID_HOME` / 未跟踪的 `local.properties`：
 
 ```bash
 ./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:assembleRelease
-# 启动 Android 模拟器或连接设备之后：
-./gradlew :app:connectedDebugAndroidTest
 ```
 
 Windows 使用 `gradlew.bat`。Gradle Wrapper 已包含在仓库中，无需手工安装 Gradle。
