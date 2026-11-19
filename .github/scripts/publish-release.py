@@ -161,6 +161,15 @@ def validate_run(run, repo, sha):
         raise ValueError('Build must come from Android CI')
 
 
+def select_artifact(artifacts, *names, required=True):
+    matches = [artifact for artifact in artifacts if artifact['name'] in names and not artifact['expired']]
+    if not matches and not required:
+        return None
+    if len(matches) != 1:
+        raise ValueError(f'Missing or ambiguous artifact: {names[0]}')
+    return {key: matches[0].get(key) for key in ('id', 'name', 'digest')}
+
+
 def validate():
     repo, tag, run_id = inputs()
     ref = api(f'repos/{repo}/git/ref/tags/{tag}')['object']
@@ -181,18 +190,14 @@ def validate():
         if not any(j['name'] == name and j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs):
             raise ValueError(f'Missing successful job: {name}')
     artifacts = api(f'repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100')['artifacts']
-    expected = ('WebShortcuts-debug', 'WebShortcuts-release-unsigned', 'verification-reports', 'device-test-reports')
-    selected = []
-    for name in expected:
-        matches = [a for a in artifacts if a['name'] == name and not a['expired']]
-        if len(matches) != 1:
-            raise ValueError(f'Missing or ambiguous artifact: {name}')
-        selected.append({k: matches[0].get(k) for k in ('id', 'name', 'digest')})
-    optional_signed = [a for a in artifacts if a['name'] == 'WebShortcuts-release' and not a['expired']]
-    if len(optional_signed) > 1:
-        raise ValueError('Ambiguous artifact: WebShortcuts-release')
-    if len(optional_signed) == 1:
-        selected.append({k: optional_signed[0].get(k) for k in ('id', 'name', 'digest')})
+    apks = [
+        select_artifact(artifacts, 'app-debug.apk', 'WebShortcuts-debug'),
+        select_artifact(artifacts, 'app-release-unsigned.apk', 'WebShortcuts-release-unsigned'),
+    ]
+    signed = select_artifact(artifacts, 'app-release.apk', 'WebShortcuts-release', required=False)
+    if signed is not None:
+        apks.append(signed)
+    selected = apks + [select_artifact(artifacts, name) for name in ('verification-reports', 'device-test-reports')]
     value = {
         'repository': repo,
         'tag': tag,
@@ -203,6 +208,10 @@ def validate():
         'artifacts': selected,
     }
     Path('release-validation.json').write_text(json.dumps(value, indent=2) + '\n')
+    if output_path := os.environ.get('GITHUB_OUTPUT'):
+        artifact_ids = ','.join(str(apk['id']) for apk in apks)
+        with Path(output_path).open('a') as output:
+            output.write(f'apk-artifact-ids={artifact_ids}\n')
     print(f'Validated {tag} -> {sha}, Android CI run {run_id}')
 
 
@@ -246,8 +255,8 @@ def package():
     value = validation()
     tools = find_build_tools()
     paths = {
-        'debug': Path('downloaded-apks/WebShortcuts-debug/app-debug.apk'),
-        'release-unsigned': Path('downloaded-apks/WebShortcuts-release-unsigned/app-release-unsigned.apk'),
+        'debug': Path('downloaded-apks/app-debug.apk'),
+        'release-unsigned': Path('downloaded-apks/app-release-unsigned.apk'),
     }
     value['tests'] = {'jvm': test_counts('downloaded-reports/jvm'), 'android35': test_counts('downloaded-reports/device')}
     value['publicationRunId'] = os.environ['GITHUB_RUN_ID']
@@ -278,7 +287,7 @@ def package():
 
     signed_name = f'{prefix}-release.apk'
     signed_target = output / signed_name
-    ci_signed_artifact = Path('downloaded-apks/WebShortcuts-release/app-release.apk')
+    ci_signed_artifact = Path('downloaded-apks/app-release.apk')
     release_cert_sha256 = None
 
     if ci_signed_artifact.is_file():

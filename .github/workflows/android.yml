@@ -52,17 +52,17 @@ jobs:
       - name: Verify minimal APK permissions
         run: python3 .github/scripts/verify-permissions.py
       - name: Upload installable debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: WebShortcuts-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          archive: false
           if-no-files-found: error
           retention-days: 30
       - name: Upload release APK (unsigned)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: WebShortcuts-release-unsigned
           path: app/build/outputs/apk/release/app-release-unsigned.apk
+          archive: false
           if-no-files-found: error
           retention-days: 30
       - name: Sign release APK if signing secret is configured
@@ -73,10 +73,10 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: python3 .github/scripts/publish-release.py sign
       - name: Upload release APK (signed)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: WebShortcuts-release
           path: app/build/outputs/apk/release/app-release.apk
+          archive: false
           if-no-files-found: ignore
           retention-days: 30
 
@@ -193,12 +193,14 @@ jobs:
       - name: Verify release publication guards
         run: python3 -m unittest discover -s .github/scripts/tests -v
       - name: Verify completed build and exact tag commit
+        id: verify-build
         run: python3 .github/scripts/publish-release.py validate
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.build_run_id }}
-          pattern: WebShortcuts-*
+          artifact-ids: ${{ steps.verify-build.outputs.apk-artifact-ids }}
+          merge-multiple: true
           path: downloaded-apks
       - uses: actions/download-artifact@v4
         with:

@@ -52,6 +52,15 @@ class PublicationGuardsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Android CI'):
             publisher.validate_run(run, self.repo, self.sha)
 
+    def test_apk_selection_accepts_raw_and_legacy_artifacts_without_ambiguity(self):
+        names = ('app-release.apk', 'WebShortcuts-release')
+        artifacts = [dict(id=index, name=name, expired=False) for index, name in enumerate(names, start=1)]
+        for artifact in artifacts:
+            with self.subTest(name=artifact['name']):
+                self.assertEqual(artifact['id'], publisher.select_artifact([artifact], *names)['id'])
+        with self.assertRaisesRegex(ValueError, 'ambiguous artifact'):
+            publisher.select_artifact(artifacts, *names, required=False)
+
     def test_conflicting_manual_modes_fail_instead_of_reporting_false_success(self):
         with patch.dict('os.environ', {'INSPECT_RUN_ID': '42'}):
             with self.assertRaisesRegex(ValueError, 'not both'):
