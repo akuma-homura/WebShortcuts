@@ -197,6 +197,14 @@ internal class BookmarkTabSession : ViewModel() {
         }
 
         override fun onUnminimized(extras: Bundle) {
+            restoreCard()
+        }
+
+        override fun onNavigationEvent(navigationEvent: Int, extras: Bundle?) {
+            if (navigationEvent == CustomTabsCallback.TAB_SHOWN) restoreCard()
+        }
+
+        private fun restoreCard() {
             if (callback !== this) return
             restoreJob?.cancel()
             restoreJob = viewModelScope.launch {

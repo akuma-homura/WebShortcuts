@@ -154,7 +154,7 @@ class BookmarkWindowsTest {
             instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(bookmark.url)
                 ?.firstOrNull()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
         }
-        assertMinimizedAndRestore(task, main.taskId)
+        assertMinimizedAndRestore(task, main)
         // Android may retain a separate task after PiP; the actual browser instance and page
         // must survive, irrespective of the system-assigned browser task ID.
         browserTask(bookmark)
@@ -185,7 +185,7 @@ class BookmarkWindowsTest {
             }?.also { browserWindow = it.windowId } != null
         }
         clickView("com.android.chrome:id/custom_tabs_minimize_button")
-        assertMinimizedAndRestore(task, main.taskId)
+        assertMinimizedAndRestore(task, main)
         await("Chrome must restore its browser window") {
             instrumentation.uiAutomation.rootInActiveWindow?.let {
                 it.packageName?.toString() == "com.android.chrome" && it.windowId == browserWindow
@@ -208,14 +208,18 @@ class BookmarkWindowsTest {
         assertEquals(main.taskId, collection().taskId)
     }
 
-    private fun assertMinimizedAndRestore(task: Int, mainTask: Int) {
+    private fun assertMinimizedAndRestore(task: Int, main: MainActivity) {
         await("The browser must enter real Android picture-in-picture") {
             instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
         await("Minimization must hide its empty host without closing the floating browser") { !hasVisibleTask(task) }
-        assertEquals(mainTask, collection().taskId)
-        await("Opening the app must preserve the floating browser after its window transition") {
-            instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
+        await("The original collection must resume beneath the floating browser") {
+            var collectionResumed = false
+            instrumentation.runOnMainSync {
+                collectionResumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                    .any { it === main }
+            }
+            collectionResumed && instrumentation.uiAutomation.windows.any { it.isInPictureInPictureMode }
         }
         // PiP accessibility bounds can describe the unscaled app surface. Use Android's actual
         // full-screen action instead of coordinates, which can hit the collection underneath.

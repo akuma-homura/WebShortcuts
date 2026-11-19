@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.Bundle
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.browser.customtabs.CustomTabsCallback
 import androidx.browser.customtabs.ExperimentalMinimizationCallback
 import java.time.Duration
 import org.junit.Assert.assertFalse
@@ -28,7 +29,7 @@ class BookmarkTabSessionTest {
         shadow.setTaskInfo(info)
         task.setExcludeFromRecents(true)
 
-        session.callbackFor(task).onUnminimized(Bundle())
+        session.callbackFor(task).onNavigationEvent(CustomTabsCallback.TAB_SHOWN, null)
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(shadow.isExcludedFromRecents)
 
