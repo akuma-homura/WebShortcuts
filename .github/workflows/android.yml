@@ -103,6 +103,8 @@ jobs:
       - name: Verify release publication guards
         run: python3 -m unittest discover -s .github/scripts/tests -v
       - name: Run unit tests and lint
+        env:
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
         run: ./gradlew --no-daemon --continue --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:lintDebug
       - name: Upload test and lint reports
         if: always()
