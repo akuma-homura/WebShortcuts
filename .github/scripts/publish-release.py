@@ -132,7 +132,7 @@ def sign():
 def sign_preview():
     directory = Path('app/build/outputs/apk/preview')
     if not sign_apk_file(directory / 'app-preview-unsigned.apk', directory / 'app-preview.apk'):
-        raise ValueError('Configure the dedicated Preview signing keystore before building in CI')
+        raise ValueError('Configure the release signing keystore before signing the Preview APK')
 
 
 def inputs():
