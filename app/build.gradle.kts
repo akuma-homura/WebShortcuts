@@ -11,8 +11,9 @@ android {
         applicationId = "io.github.homura251.webshortcuts"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "1.5.1"
+        versionCode = 22
+        versionName = "1.5.2"
+        manifestPlaceholders["launcherLabel"] = "WebShortcuts"
         testInstrumentationRunner = "io.github.homura251.webshortcuts.shortcuts.WindowTestRunner"
     }
     buildTypes {
@@ -20,6 +21,13 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            manifestPlaceholders["launcherLabel"] = "WebShortcuts Preview"
+            isDebuggable = true
         }
     }
     compileOptions {
