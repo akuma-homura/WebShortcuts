@@ -129,12 +129,6 @@ def sign():
     sign_apk_file(unsigned, signed)
 
 
-def sign_preview():
-    directory = Path('app/build/outputs/apk/preview')
-    if not sign_apk_file(directory / 'app-preview-unsigned.apk', directory / 'app-preview.apk'):
-        raise ValueError('Configure the dedicated Preview signing keystore before building in CI')
-
-
 def inputs():
     if os.environ.get('INSPECT_RUN_ID'):
         raise ValueError('Choose publication or report inspection, not both')
@@ -150,9 +144,7 @@ def inputs():
     return repo, tag, run_id
 
 
-def is_prerelease_release(tag: str, release_signed: bool, *, automatic: bool = False) -> bool:
-    if automatic and ('-' in tag or not release_signed):
-        raise ValueError('Automatic publication requires a stable tag and a signed release APK')
+def is_prerelease_release(tag: str, release_signed: bool) -> bool:
     return ('-' in tag) or (not release_signed)
 
 
@@ -350,8 +342,7 @@ def publish():
         raise ValueError('Release tag, build attempt or artifacts changed during publication')
     build_info_files = list(Path('release-assets').glob('*-BUILD-INFO.json'))
     release_signed = bool(build_info_files and json.loads(build_info_files[0].read_text()).get('releaseSigned'))
-    automatic = os.environ.get('AUTOMATIC_RELEASE') == 'true'
-    prerelease = is_prerelease_release(tag, release_signed, automatic=automatic)
+    prerelease = is_prerelease_release(tag, release_signed)
 
     found = subprocess.run(
         ['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft,assets,url'],
@@ -372,9 +363,6 @@ def publish():
             capture_output=True, text=True, check=True,
         )
     release = json.loads(found.stdout)
-    if automatic and not release['isDraft']:
-        print(f'Already published {release["url"]}')
-        return
     existing = {a['name']: a for a in release['assets']}
     files = sorted(Path('release-assets').iterdir())
     existing_downloads = Path('existing-downloads')
@@ -411,6 +399,5 @@ def publish():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    phases = {'sign': sign, 'sign-preview': sign_preview, 'validate': validate, 'package': package, 'publish': publish}
-    parser.add_argument('phase', choices=phases)
-    phases[parser.parse_args().phase]()
+    parser.add_argument('phase', choices=['sign', 'validate', 'package', 'publish'])
+    {'sign': sign, 'validate': validate, 'package': package, 'publish': publish}[parser.parse_args().phase]()
