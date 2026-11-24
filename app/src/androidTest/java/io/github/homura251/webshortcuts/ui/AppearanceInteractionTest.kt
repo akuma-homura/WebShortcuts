@@ -77,8 +77,20 @@ class AppearanceInteractionTest {
     @Test fun gridPlacesTwoBookmarksInOneRowAndKeepsTheSiteActionsAccessible() {
         val preferences = mutableStateOf(AppearancePreferences(dynamicColor = false))
         val bookmarks = listOf(
-            BookmarkItem(id = "grid-first", title = "GitHub", url = "https://github.com", selectedIconSource = IconSourceMode.GENERATED),
-            BookmarkItem(id = "grid-second", title = "Android", url = "https://developer.android.com", selectedIconSource = IconSourceMode.GENERATED),
+            BookmarkItem(
+                id = "grid-first",
+                title = "GitHub",
+                url = "https://github.com",
+                selectedIconSource = IconSourceMode.GENERATED,
+                createdAt = 2L,
+            ),
+            BookmarkItem(
+                id = "grid-second",
+                title = "Android",
+                url = "https://developer.android.com",
+                selectedIconSource = IconSourceMode.GENERATED,
+                createdAt = 1L,
+            ),
         )
         var edited: BookmarkItem? = null
         compose.setContent {

@@ -1,5 +1,7 @@
 package io.github.homura251.webshortcuts.ui
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,7 +10,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.github.homura251.webshortcuts.data.BookmarkItem
@@ -18,8 +22,12 @@ import io.github.homura251.webshortcuts.data.LibrarySortPreferences
 import io.github.homura251.webshortcuts.data.SortDirection
 import io.github.homura251.webshortcuts.data.TagFilter
 import io.github.homura251.webshortcuts.data.TagSortField
+import io.github.homura251.webshortcuts.icons.IconProcessor
+import io.github.homura251.webshortcuts.icons.IconResolver
+import io.github.homura251.webshortcuts.icons.IconStore
 import io.github.homura251.webshortcuts.ui.theme.AppTheme
 import io.github.homura251.webshortcuts.ui.theme.WebShortcutsTheme
+import java.io.File
 
 @Preview(widthDp = 360, heightDp = 640, showBackground = true)
 @Composable
@@ -66,6 +74,14 @@ private fun SortPreview(value: LibrarySortPreferences, target: OrderTarget, dark
 
 @Composable
 private fun ReorderPreview(dark: Boolean) {
+    val context = LocalContext.current
+    val resolver = remember(context) {
+        val previewContext = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+            override fun getFilesDir() = File(System.getProperty("java.io.tmpdir"), "webshortcuts-sorting-preview")
+        }
+        IconResolver(previewContext, IconStore(previewContext), IconProcessor())
+    }
     val tags = listOf(BookmarkTag("work", "工作"), BookmarkTag("reference", "参考资料"))
     val items = listOf("Android 开发者", "GitHub", "Material Design", "维基百科", "Kotlin 文档").mapIndexed { i, title ->
         BookmarkItem(id = "demo-$i", title = title, url = "https://example.com/$i", tagIds = setOf("reference"))
@@ -80,6 +96,7 @@ private fun ReorderPreview(dark: Boolean) {
                 reorder = ReorderUiState(OrderTarget.BOOKMARKS, ids, ids, filter = TagFilter(setOf("reference"))),
             ),
             SortActions(),
+            resolver,
         )
     }
 }

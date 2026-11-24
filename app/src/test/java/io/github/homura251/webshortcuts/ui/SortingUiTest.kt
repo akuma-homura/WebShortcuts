@@ -1,11 +1,11 @@
 package io.github.homura251.webshortcuts.ui
 
+import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.SnackbarHostState
+import androidx.test.core.app.ApplicationProvider
 import io.github.homura251.webshortcuts.data.*
 import io.github.homura251.webshortcuts.icons.*
 import io.github.homura251.webshortcuts.ui.theme.*
@@ -29,15 +30,18 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SortingUiTest {
     @get:Rule val compose = createComposeRule()
+    private val resolver by lazy {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        IconResolver(context, IconStore(context), IconProcessor())
+    }
     private val items = (0..29).map { BookmarkItem(id = "site-$it", title = "Site $it", url = "https://site$it.test/",
         selectedIconSource = IconSourceMode.GENERATED, createdAt = it.toLong() + 1) }
 
     @Test fun homeSortingSheetEntersManualOrganizerAndCancelReturnsToTheCollection() {
         var home by mutableStateOf(HomeUiState(loading = false, bookmarks = items.take(3)))
         compose.setContent {
-            val context = LocalContext.current
             WebShortcutsTheme(dynamicColor = false) {
-                WebShortcutsApp(home, IconResolver(context, IconStore(context), IconProcessor()), remember { SnackbarHostState() },
+                WebShortcutsApp(home, resolver, remember { SnackbarHostState() },
                     onQueryChange = {}, onAdd = {}, onEdit = {}, onOpen = {}, onPin = {}, onUpdateShortcut = {},
                     onRefresh = {}, onRefreshAll = {}, onDelete = {}, onDismissEditor = {}, onTitleChange = {},
                     onUrlChange = {}, onUrlFocusLost = {}, onModeChange = {}, onPickImage = {}, onRefetchIcon = {}, onSave = {},
@@ -52,6 +56,11 @@ class SortingUiTest {
         compose.onNodeWithTag("sort_bookmarks_MANUAL").performClick()
         compose.onNodeWithTag("organize_order").performClick()
         compose.onNodeWithTag("reorder_screen").assertIsDisplayed()
+        val firstIcon = hasTestTag("bookmark_icon_site-0") and hasAnyAncestor(hasTestTag("reorder_row_site-0"))
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodes(firstIcon, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNode(firstIcon, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("cancel_reorder").performClick()
         compose.onNodeWithTag("reorder_screen").assertDoesNotExist()
         compose.onNodeWithTag("bookmark_collection").assertIsDisplayed()
@@ -97,7 +106,7 @@ class SortingUiTest {
         compose.setContent { WebShortcutsTheme(dynamicColor = false) {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 2f)) {
                 ReorderContent(home, SortActions(move = { id, index -> home = moved(home, id, index) },
-                    save = { saves++ }, cancel = { cancels++ }), Modifier.requiredSize(320.dp, 480.dp))
+                    save = { saves++ }, cancel = { cancels++ }), resolver, Modifier.requiredSize(320.dp, 480.dp))
             }
         } }
         compose.onNodeWithTag("reorder_menu_site-0").performClick()
@@ -116,7 +125,7 @@ class SortingUiTest {
     @Test fun draggingTheHandleMovesTheDraftAndSavingDisablesControls() {
         var home by mutableStateOf(home(4))
         compose.setContent { WebShortcutsTheme(dynamicColor = false) {
-            ReorderContent(home, SortActions(move = { id, index -> home = moved(home, id, index) }))
+            ReorderContent(home, SortActions(move = { id, index -> home = moved(home, id, index) }), resolver)
         } }
         val first = compose.onNodeWithTag("reorder_drag_site-0").fetchSemanticsNode().boundsInRoot
         val second = compose.onNodeWithTag("reorder_drag_site-1").fetchSemanticsNode().boundsInRoot
@@ -138,7 +147,8 @@ class SortingUiTest {
     @Test fun holdingAHandleNearTheBottomScrollsAcrossMoreThanOneScreen() {
         var home by mutableStateOf(home(30))
         compose.setContent { WebShortcutsTheme(dynamicColor = false) {
-            ReorderContent(home, SortActions(move = { id, index -> home = moved(home, id, index) }), Modifier.requiredSize(360.dp, 480.dp))
+            ReorderContent(home, SortActions(move = { id, index -> home = moved(home, id, index) }), resolver,
+                Modifier.requiredSize(360.dp, 480.dp))
         } }
         val start = compose.onNodeWithTag("reorder_drag_site-0").fetchSemanticsNode().boundsInRoot
         val viewport = compose.onNodeWithTag("reorder_list").fetchSemanticsNode().boundsInRoot
@@ -165,9 +175,8 @@ class SortingUiTest {
         var layout by mutableStateOf(LayoutMode.LIST)
         var home by mutableStateOf(HomeUiState(loading = false, bookmarks = items.take(3)))
         compose.setContent {
-            val context = LocalContext.current
             WebShortcutsTheme(dynamicColor = false) {
-                BookmarkCollection(home, IconResolver(context, IconStore(context), IconProcessor()), layout,
+                BookmarkCollection(home, resolver, layout,
                     {}, {}, { layout = it }, {}, {}, {}, {}, {}, {}, {})
             }
         }

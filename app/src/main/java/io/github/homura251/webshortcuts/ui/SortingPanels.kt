@@ -79,6 +79,7 @@ import io.github.homura251.webshortcuts.data.LibrarySortPreferences
 import io.github.homura251.webshortcuts.data.LibraryTags
 import io.github.homura251.webshortcuts.data.SortDirection
 import io.github.homura251.webshortcuts.data.TagSortField
+import io.github.homura251.webshortcuts.icons.IconResolver
 import io.github.homura251.webshortcuts.ui.components.ConnectedChoiceItem
 import io.github.homura251.webshortcuts.ui.components.ExpressiveButton
 import io.github.homura251.webshortcuts.ui.components.ExpressiveChoiceOption
@@ -284,7 +285,7 @@ private fun SortChoice(
 }
 
 @Composable
-internal fun ReorderDialog(home: HomeUiState, actions: SortActions) {
+internal fun ReorderDialog(home: HomeUiState, actions: SortActions, iconResolver: IconResolver) {
     val draft = home.reorder ?: return
     Dialog(
         onDismissRequest = { if (!draft.saving) actions.cancel() },
@@ -295,13 +296,18 @@ internal fun ReorderDialog(home: HomeUiState, actions: SortActions) {
             dismissOnClickOutside = false,
         ),
     ) {
-        ReorderContent(home, actions)
+        ReorderContent(home, actions, iconResolver)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ReorderContent(home: HomeUiState, actions: SortActions, modifier: Modifier = Modifier) {
+internal fun ReorderContent(
+    home: HomeUiState,
+    actions: SortActions,
+    iconResolver: IconResolver,
+    modifier: Modifier = Modifier,
+) {
     val draft = home.reorder ?: return
     val surfaces = AppTheme.surfaces
     Scaffold(
@@ -355,13 +361,13 @@ internal fun ReorderContent(home: HomeUiState, actions: SortActions, modifier: M
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            ReorderList(home, actions, Modifier.weight(1f))
+            ReorderList(home, actions, iconResolver, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun ReorderList(home: HomeUiState, actions: SortActions, modifier: Modifier) {
+private fun ReorderList(home: HomeUiState, actions: SortActions, iconResolver: IconResolver, modifier: Modifier) {
     val draft = home.reorder ?: return
     val list = rememberLazyListState()
     var draggedId by remember { mutableStateOf<String?>(null) }
@@ -375,6 +381,7 @@ private fun ReorderList(home: HomeUiState, actions: SortActions, modifier: Modif
     val handleSize = with(LocalDensity.current) { 48.dp.toPx() }
     val sidePadding = with(LocalDensity.current) { 16.dp.toPx() }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val sortingBookmarks = draft.target == OrderTarget.BOOKMARKS
     val bookmarks = remember(home.bookmarks) { home.bookmarks.associateBy { it.id } }
     val tags = remember(home.tags) { home.tags.associateBy { it.id } }
     val counts = remember(home.bookmarks) { LibraryOrdering.tagCounts(home.bookmarks) }
@@ -472,8 +479,9 @@ private fun ReorderList(home: HomeUiState, actions: SortActions, modifier: Modif
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
     ) {
         itemsIndexed(draft.orderedIds, key = { _, id -> id }) { index, id ->
-            val title = if (draft.target == OrderTarget.BOOKMARKS) bookmarks[id]?.title.orEmpty() else tags[id]?.name.orEmpty()
-            val subtitle = if (draft.target == OrderTarget.BOOKMARKS) bookmarks[id]?.url.orEmpty()
+            val bookmark = if (sortingBookmarks) bookmarks[id] else null
+            val title = if (sortingBookmarks) bookmark?.title.orEmpty() else tags[id]?.name.orEmpty()
+            val subtitle = if (sortingBookmarks) bookmark?.url.orEmpty()
             else stringResource(R.string.tag_bookmark_count, counts[id] ?: 0)
             val up = stringResource(R.string.organize_up)
             val down = stringResource(R.string.organize_down)
@@ -520,6 +528,16 @@ private fun ReorderList(home: HomeUiState, actions: SortActions, modifier: Modif
                         Box(contentAlignment = Alignment.Center) {
                             Text("${index + 1}", style = MaterialTheme.typography.labelMedium)
                         }
+                    }
+                    if (bookmark != null) {
+                        val bitmap by rememberBookmarkIcon(bookmark, iconResolver)
+                        BookmarkIcon(
+                            bookmark,
+                            bitmap,
+                            scheme.secondaryContainer,
+                            size = 36.dp,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp, top = 10.dp, bottom = 10.dp)) {
                         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

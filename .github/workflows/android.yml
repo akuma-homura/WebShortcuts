@@ -102,10 +102,17 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Verify release publication guards
         run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Cache Robolectric SDKs
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/robolectric-sdks
+          key: robolectric-sdks-${{ hashFiles('.github/scripts/robolectric-sdks.sha256') }}
+      - name: Prepare Robolectric SDKs
+        run: bash .github/scripts/prepare-robolectric-sdks.sh "$RUNNER_TEMP/robolectric-sdks"
       - name: Run unit tests and lint
-        env:
-          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
-        run: ./gradlew --no-daemon --continue --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:lintDebug
+        run: |
+          export JAVA_TOOL_OPTIONS="-Drobolectric.dependency.dir=$RUNNER_TEMP/robolectric-sdks"
+          ./gradlew --no-daemon --continue --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:lintDebug
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4

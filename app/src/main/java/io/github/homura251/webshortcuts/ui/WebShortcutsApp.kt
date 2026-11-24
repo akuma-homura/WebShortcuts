@@ -304,7 +304,7 @@ fun WebShortcutsApp(
     showSorting?.let { target ->
         SortingSheet(state, OrderTarget.valueOf(target), sortQuery, { showSorting = null }, sortActions)
     }
-    if (state.reorder != null) ReorderDialog(state, sortActions)
+    if (state.reorder != null) ReorderDialog(state, sortActions, iconResolver)
     deleteTarget?.let { bookmark ->
         ExpressiveAlertDialog(
             onDismissRequest = { deleteTarget = null },
