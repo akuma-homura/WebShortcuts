@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -173,19 +174,7 @@ internal fun BookmarkCard(
     interactionBlocked: Boolean = false,
     browserName: String? = null,
 ) {
-    val bitmap by produceState<Bitmap?>(
-        initialValue = null,
-        key1 = bookmark.copy(tagIds = emptySet(), updatedAt = 0),
-        key2 = iconResolver,
-    ) {
-        value = try {
-            withContext(Dispatchers.IO) { iconResolver.resolve(bookmark) }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            null
-        }
-    }
+    val bitmap by rememberBookmarkIcon(bookmark, iconResolver)
     val accent by rememberIconAccent(bitmap)
     val colors = MaterialTheme.colorScheme
     val iconContainer = animatedIconTint(colors.secondaryContainer, accent, colors.onSecondaryContainer)
@@ -355,12 +344,34 @@ private fun BookmarkMenuItem(text: Int, icon: ImageVector, enabled: Boolean = tr
 }
 
 @Composable
-private fun BookmarkIcon(bookmark: BookmarkItem, bitmap: Bitmap?, container: Color, size: Dp = 52.dp) {
+internal fun rememberBookmarkIcon(bookmark: BookmarkItem, iconResolver: IconResolver): State<Bitmap?> =
+    produceState(
+        initialValue = null,
+        key1 = bookmark.copy(tagIds = emptySet(), updatedAt = 0),
+        key2 = iconResolver,
+    ) {
+        value = try {
+            withContext(Dispatchers.IO) { iconResolver.resolve(bookmark) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+@Composable
+internal fun BookmarkIcon(
+    bookmark: BookmarkItem,
+    bitmap: Bitmap?,
+    container: Color,
+    size: Dp = 52.dp,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = container,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-        modifier = Modifier.size(size),
+        modifier = modifier.size(size),
     ) {
         if (bitmap != null) {
             Image(
